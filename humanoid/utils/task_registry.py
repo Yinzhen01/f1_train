@@ -32,7 +32,7 @@
 
 
 import os
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 from datetime import datetime
 
 from humanoid.algo import VecEnv
@@ -40,7 +40,9 @@ from humanoid.algo import DHOnPolicyRunner
 
 from humanoid import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .helpers import get_args, update_cfg_from_args, class_to_dict, get_load_path, set_seed, parse_sim_params
-from humanoid.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
+
+if TYPE_CHECKING:
+    from humanoid.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 class TaskRegistry():
     def __init__(self):
@@ -48,7 +50,7 @@ class TaskRegistry():
         self.env_cfgs = {}
         self.train_cfgs = {}
     
-    def register(self, name: str, task_class: VecEnv, env_cfg: LeggedRobotCfg, train_cfg: LeggedRobotCfgPPO):
+    def register(self, name: str, task_class: VecEnv, env_cfg: "LeggedRobotCfg", train_cfg: "LeggedRobotCfgPPO"):
         self.task_classes[name] = task_class
         self.env_cfgs[name] = env_cfg
         self.train_cfgs[name] = train_cfg
@@ -56,14 +58,14 @@ class TaskRegistry():
     def get_task_class(self, name: str) -> VecEnv:
         return self.task_classes[name]
     
-    def get_cfgs(self, name) -> Tuple[LeggedRobotCfg, LeggedRobotCfgPPO]:
+    def get_cfgs(self, name) -> Tuple["LeggedRobotCfg", "LeggedRobotCfgPPO"]:
         train_cfg = self.train_cfgs[name]
         env_cfg = self.env_cfgs[name]
         # copy seed
         env_cfg.seed = train_cfg.seed
         return env_cfg, train_cfg
     
-    def make_env(self, name, args=None, env_cfg=None) -> Tuple[VecEnv, LeggedRobotCfg]:
+    def make_env(self, name, args=None, env_cfg=None) -> Tuple[VecEnv, "LeggedRobotCfg"]:
         """ Creates an environment either from a registered namme or from the provided config file.
 
         Args:
@@ -103,7 +105,7 @@ class TaskRegistry():
         self.env_cfg_for_wandb = env_cfg
         return env, env_cfg
 
-    def make_alg_runner(self, env, name=None, args=None, train_cfg=None, log_root="default") -> Tuple[DHOnPolicyRunner, LeggedRobotCfgPPO]:
+    def make_alg_runner(self, env, name=None, args=None, train_cfg=None, log_root="default") -> Tuple[DHOnPolicyRunner, "LeggedRobotCfgPPO"]:
         """ Creates the training algorithm  either from a registered namme or from the provided config file.
 
         Args:

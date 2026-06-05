@@ -705,7 +705,7 @@ class LeggedRobot(BaseTask):
             [torch.Tensor]: Torques sent to the simulation
         """
         # pd controller
-        actions_scaled = actions * self.cfg.control.action_scale
+        actions_scaled = actions * self.action_scale
         if self.cfg.domain_rand.add_lag:
             self.lag_buffer[:,:,1:] = self.lag_buffer[:,:,:self.cfg.domain_rand.lag_timesteps_range[1]].clone()
             self.lag_buffer[:,:,0] = actions_scaled.clone()
@@ -909,6 +909,17 @@ class LeggedRobot(BaseTask):
         self.rand_push_force = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
         self.rand_push_torque = torch.zeros((self.num_envs, 3), dtype=torch.float32, device=self.device)
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
+        action_scale = self.cfg.control.action_scale
+        if isinstance(action_scale, (list, tuple)):
+            if len(action_scale) != self.num_actions:
+                raise ValueError(
+                    f"control.action_scale length {len(action_scale)} != num_actions {self.num_actions}"
+                )
+            self.action_scale = torch.tensor(
+                action_scale, dtype=torch.float, device=self.device, requires_grad=False
+            ).unsqueeze(0)
+        else:
+            self.action_scale = action_scale
 
         self.default_joint_pd_target = self.default_dof_pos.clone()
         self.obs_history = deque(maxlen=self.cfg.env.frame_stack)
