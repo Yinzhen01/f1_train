@@ -188,7 +188,69 @@ CUDA_VISIBLE_DEVICES=0 WANDB_MODE=offline python humanoid/scripts/train.py \
   --run_name=f1_29dof_v1
 ```
 
-## 8. 监控训练
+## 8. 带界面训练测试
+
+如果远端有云桌面/图形界面，可以不加 `--headless`，让 Isaac Gym 打开 viewer 做可视化 smoke test。
+
+先确认图形环境：
+
+```bash
+echo $DISPLAY
+nvidia-smi
+```
+
+如果 `DISPLAY` 为空，可尝试：
+
+```bash
+export DISPLAY=:0
+```
+
+带界面小规模测试：
+
+```bash
+WANDB_MODE=offline python humanoid/scripts/train.py \
+  --task=f1_dh_stand \
+  --num_envs=16 \
+  --max_iterations=10
+```
+
+更轻量的单环境测试：
+
+```bash
+WANDB_MODE=offline python humanoid/scripts/train.py \
+  --task=f1_dh_stand \
+  --num_envs=1 \
+  --max_iterations=10
+```
+
+注意：
+
+- 带 viewer 时不要使用 `--headless`。
+- 图形测试只用于确认模型加载、接触、姿态和训练流程是否正常。
+- 正式训练仍建议使用 `--headless`，速度更快也更稳定。
+- 如果 viewer 黑屏、闪退或卡死，先回到 headless smoke test 排查训练逻辑。
+
+如果已经训练出模型，可以用 `play.py` 打开界面回放策略：
+
+```bash
+python humanoid/scripts/play.py \
+  --task=f1_dh_stand \
+  --load_run=<run_name>
+```
+
+如果只想看 TensorBoard 训练曲线，则不需要 Isaac Gym viewer：
+
+```bash
+tensorboard --logdir logs/f1_dh_stand --host 0.0.0.0 --port 6006
+```
+
+浏览器打开：
+
+```text
+http://localhost:6006
+```
+
+## 9. 监控训练
 
 查看 GPU：
 
@@ -220,7 +282,7 @@ ssh -L 6006:localhost:6006 root@服务器IP
 http://localhost:6006
 ```
 
-## 9. 导出策略
+## 10. 导出策略
 
 导出 JIT：
 
@@ -238,7 +300,7 @@ python humanoid/scripts/export_onnx_dh.py \
   --load_run=<run_name>
 ```
 
-## 10. 常见问题
+## 11. 常见问题
 
 ### PyTorch 先于 Isaac Gym 导入
 
@@ -296,7 +358,7 @@ Isaac Gym Preview 4
 
 如果远端已有 PyTorch 2.x 且 smoke test 能通过，可以先继续使用。
 
-## 11. 当前 F1 注意事项
+## 12. 当前 F1 注意事项
 
 - F1 当前训练使用 URDF：
 
