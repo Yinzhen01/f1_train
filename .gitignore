@@ -54,6 +54,11 @@ Thumbs.db
 logs
 runs
 
+# gm-cli temporary payloads
+create-*.json
+edit-*.json
+copy-*.json
+
 # other
 *.egg-info
 __pycache__
