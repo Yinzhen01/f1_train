@@ -58,6 +58,7 @@ runs
 create-*.json
 edit-*.json
 copy-*.json
+ops/gm-cli/payloads/
 
 # other
 *.egg-info

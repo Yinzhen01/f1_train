@@ -15,7 +15,7 @@ class F1DHStandCfg(X1DHStandCfg):
         num_privileged_obs = int(X1DHStandCfg.env.c_frame_stack * single_num_privileged_obs)
 
     class asset(X1DHStandCfg.asset):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/Models/urdf/F1_29DOF_physically_mirrored.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/f1_v1.5/urdf/F1_29DOF_physically_mirrored.urdf'
         xml_file = ''
         name = "f1"
 
