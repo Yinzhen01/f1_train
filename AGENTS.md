@@ -110,6 +110,26 @@ Downloaded logs, checkpoints, model-list records, and task metadata should follo
 doc/cloud_task_artifact_layout.md
 ```
 
+After downloading a completed Gradmotion task directory under `cloud_artifacts/tasks/<TASK_ID>/`, sync it to the inference repository:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\gm-cli\sync-task-artifacts.ps1 -TaskId TASK_xxx
+```
+
+The expected inference-side destination is:
+
+```text
+F:\Projects\agibot_x1_infer\training\<TASK_ID>\
+```
+
+Writing to the inference repository training directory may require an elevated shell.
+
+For new completed tasks, prefer the downloader helper because it downloads and syncs in one step:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\gm-cli\download-task-artifacts.ps1 -TaskId TASK_xxx
+```
+
 ## gm-cli Entry Point
 
 On this Windows machine, do not call `gm` directly from PowerShell because it may resolve to `Get-Member`.

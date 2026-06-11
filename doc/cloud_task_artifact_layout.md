@@ -102,6 +102,26 @@ Recommended retrieval sequence:
 
 Download checkpoint files from the `policUrlDown` values in `model-list.json`. These are signed URLs and may expire, so keep `model-list.json` as a historical record but refresh it if a download URL stops working.
 
+This repository includes a helper that performs the retrieval and syncs the downloaded task directory to the inference repository:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\gm-cli\download-task-artifacts.ps1 -TaskId TASK_xxx
+```
+
+The helper stores artifacts under `cloud_artifacts/tasks/<TASK_ID>/` and, by default, copies the same task directory to:
+
+```text
+F:\Projects\agibot_x1_infer\training\<TASK_ID>\
+```
+
+Writing to `F:\Projects\agibot_x1_infer\training` may require an elevated shell on this machine.
+
+To sync already-downloaded local task directories without re-downloading from Gradmotion:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\gm-cli\sync-task-artifacts.ps1 -TaskId TASK_xxx
+```
+
 ## Git Policy
 
 Never commit:
@@ -126,4 +146,3 @@ ops/gm-cli/payloads/
 ```
 
 Payload files such as `create-*.json`, `edit-*.json`, and `copy-*.json` should remain uncommitted unless a specific known-good template is intentionally preserved.
-

@@ -64,3 +64,25 @@ checksums.sha256
 `cloud_artifacts/` is local-only and ignored by Git.
 
 See `../../doc/cloud_task_artifact_layout.md` for file roles, metadata conventions, and checkpoint checksum policy.
+
+## Inference Repository Sync
+
+After a Gradmotion task completes, download and sync artifacts with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\gm-cli\download-task-artifacts.ps1 -TaskId TASK_xxx
+```
+
+This copies the downloaded task directory to:
+
+```text
+F:\Projects\agibot_x1_infer\training\<TASK_ID>\
+```
+
+Writing to that destination may require an elevated shell.
+
+For task directories that are already present under `cloud_artifacts/tasks/`, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\gm-cli\sync-task-artifacts.ps1 -TaskId TASK_xxx
+```
