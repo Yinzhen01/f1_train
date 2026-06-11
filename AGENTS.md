@@ -41,6 +41,39 @@ doc/project_structure_and_cleanup.md
 
 Project structure and cleanup guide, including root directory policy, gm-cli payload placement, cleanup workflow, and current housekeeping decisions.
 
+```text
+doc/cloud_task_artifact_layout.md
+```
+
+Local-only cloud task artifact layout, including downloaded logs, checkpoints, task metadata, model-list records, TensorBoard files, and checksum conventions.
+
+## AGENTS.md Registration Policy
+
+Register content here only when a future agent should know it before acting in this repository.
+
+Add entries for:
+
+```text
+Stable workflow entry points that route to detailed docs.
+Safety, cost, data-integrity, or cloud-operation rules.
+Tool entry points and machine-specific caveats that prevent wrong commands.
+Long-lived directory conventions and artifact ownership boundaries.
+Known-good baselines that future debugging should compare against.
+External service caveats that affect task success or reproducibility.
+```
+
+Do not add:
+
+```text
+Full procedures that belong in doc/.
+Temporary task payloads, raw logs, signed URLs, or downloaded artifacts.
+One-off experiment notes unless they become a durable baseline.
+Detailed implementation notes that are discoverable from code.
+Large file lists, transient TODOs, or personal scratch notes.
+```
+
+Keep this file concise: register the existence, location, and reason for each durable rule or document; put the details in `doc/` or `ops/`.
+
 ## Operating Rules
 
 Before creating, editing, running, stopping, or deleting cloud tasks:
@@ -63,6 +96,18 @@ They are request payloads and should stay local under:
 
 ```text
 ops/gm-cli/payloads/
+```
+
+Do not commit downloaded cloud task artifacts:
+
+```text
+cloud_artifacts/
+```
+
+Downloaded logs, checkpoints, model-list records, and task metadata should follow:
+
+```text
+doc/cloud_task_artifact_layout.md
 ```
 
 ## gm-cli Entry Point

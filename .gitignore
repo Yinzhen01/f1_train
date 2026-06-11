@@ -54,6 +54,9 @@ Thumbs.db
 logs
 runs
 
+# Downloaded cloud task artifacts
+cloud_artifacts/
+
 # gm-cli temporary payloads
 create-*.json
 edit-*.json

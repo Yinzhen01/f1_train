@@ -47,6 +47,12 @@ ops/gm-cli/
 gm-cli-specific operational notes and local payload organization.
 
 ```text
+cloud_artifacts/
+```
+
+Local-only downloads from cloud tasks, including logs, checkpoint files, task metadata, TensorBoard files, and checksum records. This directory is ignored by Git and should not be committed. Detailed layout is defined in `doc/cloud_task_artifact_layout.md`.
+
+```text
 ops/gm-cli/payloads/
 ```
 
@@ -96,7 +102,21 @@ It corresponds to the successful smoke task:
 TASK_20260608_073
 ```
 
-## 5. Cleanup Workflow
+## 5. Cloud Artifact Policy
+
+Downloaded cloud task outputs should stay under:
+
+```text
+cloud_artifacts/tasks/<TASK_ID>/
+```
+
+Detailed layout, file roles, and retrieval conventions are defined in:
+
+```text
+doc/cloud_task_artifact_layout.md
+```
+
+## 6. Cleanup Workflow
 
 Before cleanup:
 
@@ -118,7 +138,7 @@ Cleanup steps:
 
 Do not delete unrelated untracked files or directories without explicit user confirmation.
 
-## 6. Current Cleanup Decisions
+## 7. Current Cleanup Decisions
 
 Applied decisions:
 
@@ -126,6 +146,7 @@ Applied decisions:
 Failed path trial payloads: delete.
 Successful create-validate-a10-public.json: preserve as create-validate-a10-public-known-good.json under ops/gm-cli/payloads/.
 Future formal training payloads: create under ops/gm-cli/payloads/ and keep uncommitted.
+Future downloaded cloud artifacts: create under cloud_artifacts/tasks/<TASK_ID>/ and keep uncommitted.
 Default project entry point: AGENTS.md.
 Legacy codex.md: delete after AGENTS.md contains the routing rules.
 ```
@@ -143,9 +164,13 @@ create-validate-a10-tokenfix.json
 create-validate-a10-public.json
 ```
 
-## 7. Changelog
+## 8. Changelog
 
 ```text
+2026-06-11
+- Added doc/cloud_task_artifact_layout.md for downloaded cloud task artifact conventions.
+- Registered the cloud artifact layout in AGENTS.md.
+
 2026-06-10
 - Added this project structure and cleanup guide.
 - Registered this guide in AGENTS.md.

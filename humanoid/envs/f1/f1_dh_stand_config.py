@@ -19,6 +19,20 @@ class F1DHStandCfg(X1DHStandCfg):
         xml_file = ''
         name = "f1"
 
+    class motion_reference:
+        enabled = True
+        file = (
+            '{LEGGED_GYM_ROOT_DIR}/resources/motions/f1/v1.5/processed/'
+            '07_03_walk_yup_recwalk_base_lowerbody_smooth_p8_120_180_groundfit_minima_safe.npz'
+        )
+        randomize_start_phase = True
+        playback_speed = 1.0
+        stand_uses_default_pose = True
+        reset_dofs_to_motion = True
+        reset_root_height = True
+        reset_root_orientation = False
+        reset_root_velocity = False
+
     class init_state(X1DHStandCfg.init_state):
         # Retargeted first frame from:
         # /home/yinzhen/f1_sim/07_PHUMA/data/humanoid_pose/f1/v1.4/custom_walk/07_03_walk_yup_stitched.csv
