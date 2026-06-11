@@ -46,11 +46,18 @@ class MotionLoader:
         if expected_joint_names is not None:
             expected = list(expected_joint_names)
             if self.joint_names != expected:
-                raise ValueError(
-                    "Motion joint_names do not match expected joint order.\n"
-                    f"Expected: {expected}\n"
-                    f"Actual:   {self.joint_names}"
-                )
+                if set(self.joint_names) != set(expected):
+                    raise ValueError(
+                        "Motion joint_names do not match expected joints.\n"
+                        f"Expected: {expected}\n"
+                        f"Actual:   {self.joint_names}"
+                    )
+                self._joint_reorder_indices = [self.joint_names.index(name) for name in expected]
+                self.joint_names = expected
+            else:
+                self._joint_reorder_indices = None
+        else:
+            self._joint_reorder_indices = None
 
         self.frame_count = int(data["timestamps"].shape[0])
         if self.frame_count < 2:
@@ -68,6 +75,8 @@ class MotionLoader:
         self.tensors: Dict[str, torch.Tensor] = {}
         for key in MOTION_TENSOR_KEYS:
             value = torch.as_tensor(data[key], dtype=torch.float32, device=self.device)
+            if key in ("dof_pos", "dof_vel") and self._joint_reorder_indices is not None:
+                value = value[:, self._joint_reorder_indices]
             if value.shape[0] != self.frame_count:
                 raise ValueError(
                     f"Motion key {key} has {value.shape[0]} frames, expected {self.frame_count}"

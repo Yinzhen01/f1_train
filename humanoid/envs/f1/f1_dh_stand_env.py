@@ -119,7 +119,7 @@ class F1DHStandEnv(X1DHStandEnv):
 
         self.ref_dof_pos = torch.zeros_like(self.dof_pos)
         swing_delta = self.cfg.rewards.final_swing_joint_delta_pos
-        left_leg_start = 17
+        left_leg_start = 0
         right_leg_start = 23
 
         sin_pos_l[sin_pos_l > 0] = 0
@@ -139,7 +139,7 @@ class F1DHStandEnv(X1DHStandEnv):
 
     def _reward_default_joint_pos(self):
         joint_diff = self.dof_pos - self.default_joint_pd_target
-        left_yaw_roll = joint_diff[:, [18, 19, 22]]
+        left_yaw_roll = joint_diff[:, [1, 2, 5]]
         right_yaw_roll = joint_diff[:, [24, 25, 28]]
         yaw_roll = torch.norm(left_yaw_roll, dim=1) + torch.norm(right_yaw_roll, dim=1)
         yaw_roll = torch.clamp(yaw_roll - 0.1, 0, 50)

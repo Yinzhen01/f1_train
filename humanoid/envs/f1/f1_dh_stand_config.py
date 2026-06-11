@@ -86,13 +86,13 @@ class F1DHStandCfg(X1DHStandCfg):
             'hip_pitch_joint': 3, 'hip_roll_joint': 3.0, 'hip_yaw_joint': 4,
             'knee_pitch_joint': 10, 'ankle_pitch_joint': 0.5, 'ankle_roll_joint': 0.5,
         }
-        # Per-DOF scale in F1 URDF order. Values are based on the retargeted
+        # Per-DOF scale in Isaac Gym F1 asset order. Values are based on the retargeted
         # motion range around the first frame, with small scales for missing wrists.
         action_scale = [
+            1.10, 0.40, 0.85, 0.80, 0.45, 0.45,
             0.70, 0.10, 0.10,
             0.35, 0.06, 0.45, 0.20, 0.03, 0.05, 0.05,
             0.40, 0.06, 0.45, 0.28, 0.03, 0.05, 0.05,
-            1.10, 0.40, 0.85, 0.80, 0.45, 0.45,
             1.00, 0.45, 0.60, 0.80, 0.20, 0.35,
         ]
 
