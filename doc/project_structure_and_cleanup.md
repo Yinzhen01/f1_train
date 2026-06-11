@@ -22,6 +22,7 @@ doc/
 humanoid/
 resources/
 ops/
+to_infer/
 ```
 
 Avoid keeping temporary experiment files, generated payloads, copied logs, or one-off artifacts in the root directory.
@@ -39,6 +40,12 @@ ops/
 ```
 
 Operational support files for cloud training, gm-cli usage, deployment, and environment management.
+
+```text
+to_infer/
+```
+
+Inference-facing handoff materials that can be shared with the F1 inference repository or deployment team. Keep this directory limited to stable docs, manifests, and small config references. Do not commit raw checkpoints, cloud logs, signed URLs, or generated model exports here.
 
 ```text
 ops/gm-cli/
@@ -168,6 +175,7 @@ create-validate-a10-public.json
 
 ```text
 2026-06-11
+- Added `to_infer/` for inference-facing checkpoint handoff materials.
 - Added doc/cloud_task_artifact_layout.md for downloaded cloud task artifact conventions.
 - Registered the cloud artifact layout in AGENTS.md.
 

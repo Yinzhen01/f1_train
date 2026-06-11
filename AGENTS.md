@@ -47,6 +47,12 @@ doc/cloud_task_artifact_layout.md
 
 Local-only cloud task artifact layout, including downloaded logs, checkpoints, task metadata, model-list records, TensorBoard files, and checksum conventions.
 
+```text
+to_infer/f1_checkpoint_inference_handoff.md
+```
+
+Inference-facing F1 checkpoint handoff notes, including the deployment input shape, observation layout, joint/action order, action post-processing, default pose, PD gains, history buffer behavior, and task/checkpoint selection caveats.
+
 ## AGENTS.md Registration Policy
 
 Register content here only when a future agent should know it before acting in this repository.
