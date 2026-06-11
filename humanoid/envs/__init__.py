@@ -35,7 +35,12 @@ from humanoid import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .base.legged_robot import LeggedRobot
 
 from .x1.x1_dh_stand_config  import X1DHStandCfg, X1DHStandCfgPPO
-from .f1.f1_dh_stand_config import F1DHStandCfg, F1DHStandCfgPPO
+from .f1.f1_dh_stand_config import (
+    F1DHMotionImitationCfg,
+    F1DHMotionImitationCfgPPO,
+    F1DHStandCfg,
+    F1DHStandCfgPPO,
+)
 
 from .x1.x1_dh_stand_env import X1DHStandEnv
 from .f1.f1_dh_stand_env import F1DHStandEnv
@@ -44,3 +49,4 @@ from humanoid.utils.task_registry import task_registry
 
 task_registry.register( "x1_dh_stand", X1DHStandEnv, X1DHStandCfg(), X1DHStandCfgPPO() )
 task_registry.register( "f1_dh_stand", F1DHStandEnv, F1DHStandCfg(), F1DHStandCfgPPO() )
+task_registry.register( "f1_dh_motion_imitation", F1DHStandEnv, F1DHMotionImitationCfg(), F1DHMotionImitationCfgPPO() )

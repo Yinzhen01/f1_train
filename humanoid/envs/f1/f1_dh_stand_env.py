@@ -7,6 +7,26 @@ from humanoid.envs.x1.x1_dh_stand_env import X1DHStandEnv
 from humanoid.utils.motion_loader import MotionLoader
 
 
+def _quat_conjugate(quat):
+    out = quat.clone()
+    out[..., :3] *= -1.0
+    return out
+
+
+def _quat_mul(a, b):
+    ax, ay, az, aw = torch.unbind(a, dim=-1)
+    bx, by, bz, bw = torch.unbind(b, dim=-1)
+    return torch.stack(
+        (
+            aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz,
+        ),
+        dim=-1,
+    )
+
+
 class F1DHStandEnv(X1DHStandEnv):
     """F1 29-DOF variant of the X1 walking environment."""
 
@@ -14,6 +34,13 @@ class F1DHStandEnv(X1DHStandEnv):
         super()._init_buffers()
         self.motion_loader = None
         self.motion_time_offsets = torch.zeros(self.num_envs, device=self.device)
+        self.ref_dof_vel = torch.zeros_like(self.dof_vel)
+        self.ref_root_pos = torch.zeros((self.num_envs, 3), device=self.device)
+        self.ref_root_quat = torch.zeros((self.num_envs, 4), device=self.device)
+        self.ref_root_quat[:, 3] = 1.0
+        self.ref_root_lin_vel = torch.zeros((self.num_envs, 3), device=self.device)
+        self.ref_root_ang_vel = torch.zeros((self.num_envs, 3), device=self.device)
+        self.ref_foot_contacts = None
 
         motion_cfg = getattr(self.cfg, "motion_reference", None)
         if motion_cfg is None or not motion_cfg.enabled:
@@ -94,7 +121,13 @@ class F1DHStandEnv(X1DHStandEnv):
                 + self.motion_time_offsets
             )
             samples = self.motion_loader.sample_by_time(motion_times)
+            self.ref_root_pos = samples["root_pos"]
+            self.ref_root_quat = samples["root_quat"]
+            self.ref_root_lin_vel = samples["root_lin_vel"]
+            self.ref_root_ang_vel = samples["root_ang_vel"]
             self.ref_dof_pos = samples["dof_pos"]
+            self.ref_dof_vel = samples["dof_vel"]
+            self.ref_foot_contacts = samples.get("foot_contacts")
 
             if motion_cfg.stand_uses_default_pose:
                 stand_command = (
@@ -104,6 +137,9 @@ class F1DHStandEnv(X1DHStandEnv):
                 self.ref_dof_pos[stand_command] = self.default_dof_pos.expand_as(
                     self.ref_dof_pos[stand_command]
                 )
+                self.ref_dof_vel[stand_command] = 0.0
+                self.ref_root_lin_vel[stand_command] = 0.0
+                self.ref_root_ang_vel[stand_command] = 0.0
 
             ref_delta = self.ref_dof_pos - self.default_dof_pos
             action_scale = self.action_scale
@@ -137,6 +173,22 @@ class F1DHStandEnv(X1DHStandEnv):
         self.ref_action = self.ref_dof_pos / torch.clamp(action_scale, min=1e-6)
         self.ref_dof_pos += self.default_dof_pos
 
+    def _reward_ref_joint_pos(self):
+        joint_pos = self.dof_pos.clone()
+        pos_target = self.ref_dof_pos.clone()
+        motion_cfg = getattr(self.cfg, "motion_reference", None)
+        if motion_cfg is None or motion_cfg.stand_uses_default_pose:
+            stand_command = (
+                torch.norm(self.commands[:, :3], dim=1)
+                <= self.cfg.commands.stand_com_threshold
+            )
+            pos_target[stand_command] = self.default_dof_pos.clone()
+        diff = joint_pos - pos_target
+        r = torch.exp(-2 * torch.norm(diff, dim=1)) - 0.2 * torch.norm(diff, dim=1).clamp(0, 0.5)
+        if motion_cfg is None or motion_cfg.stand_uses_default_pose:
+            r[stand_command] = 1.0
+        return r
+
     def _reward_default_joint_pos(self):
         joint_diff = self.dof_pos - self.default_joint_pd_target
         left_yaw_roll = joint_diff[:, [1, 2, 5]]
@@ -144,3 +196,37 @@ class F1DHStandEnv(X1DHStandEnv):
         yaw_roll = torch.norm(left_yaw_roll, dim=1) + torch.norm(right_yaw_roll, dim=1)
         yaw_roll = torch.clamp(yaw_roll - 0.1, 0, 50)
         return torch.exp(-yaw_roll * 100) - 0.01 * torch.norm(joint_diff, dim=1)
+
+    def _reward_motion_dof_vel(self):
+        error = torch.norm(self.dof_vel - self.ref_dof_vel, dim=1)
+        return torch.exp(-error * self.cfg.rewards.motion_dof_vel_sigma)
+
+    def _reward_motion_root_height(self):
+        root_height = self.root_states[:, 2] - self.env_origins[:, 2]
+        error = torch.abs(root_height - self.ref_root_pos[:, 2])
+        return torch.exp(-error * self.cfg.rewards.motion_root_height_sigma)
+
+    def _reward_motion_root_orientation(self):
+        quat_error = _quat_mul(self.base_quat, _quat_conjugate(self.ref_root_quat))
+        quat_error = torch.nn.functional.normalize(quat_error, dim=-1)
+        angle_error = 2.0 * torch.atan2(
+            torch.norm(quat_error[:, :3], dim=1),
+            torch.abs(quat_error[:, 3]).clamp(min=1e-6),
+        )
+        return torch.exp(-angle_error * self.cfg.rewards.motion_root_orientation_sigma)
+
+    def _reward_motion_root_lin_vel(self):
+        error = torch.norm(self.root_states[:, 7:10] - self.ref_root_lin_vel, dim=1)
+        return torch.exp(-error * self.cfg.rewards.motion_root_lin_vel_sigma)
+
+    def _reward_motion_root_ang_vel(self):
+        error = torch.norm(self.root_states[:, 10:13] - self.ref_root_ang_vel, dim=1)
+        return torch.exp(-error * self.cfg.rewards.motion_root_ang_vel_sigma)
+
+    def _reward_motion_contact_schedule(self):
+        if self.ref_foot_contacts is None:
+            return torch.zeros(self.num_envs, device=self.device)
+        contact = (self.contact_forces[:, self.feet_indices, 2] > 5.).float()
+        target_contact = (self.ref_foot_contacts > 0.5).float()
+        matches = (contact == target_contact).float()
+        return torch.mean(matches, dim=1)

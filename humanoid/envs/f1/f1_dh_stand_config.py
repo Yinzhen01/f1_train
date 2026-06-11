@@ -96,6 +96,13 @@ class F1DHStandCfg(X1DHStandCfg):
             1.00, 0.45, 0.60, 0.80, 0.20, 0.35,
         ]
 
+    class rewards(X1DHStandCfg.rewards):
+        motion_dof_vel_sigma = 0.15
+        motion_root_height_sigma = 100.0
+        motion_root_orientation_sigma = 8.0
+        motion_root_lin_vel_sigma = 4.0
+        motion_root_ang_vel_sigma = 3.0
+
 
 class F1DHStandCfgPPO(X1DHStandCfgPPO):
     class policy(X1DHStandCfgPPO.policy):
@@ -117,3 +124,67 @@ class F1DHStandCfgPPO(X1DHStandCfgPPO):
 
     class runner(X1DHStandCfgPPO.runner):
         experiment_name = 'f1_dh_stand'
+
+
+class F1DHMotionImitationCfg(F1DHStandCfg):
+    """F1 training profile that prioritizes retargeted motion imitation."""
+
+    class env(F1DHStandCfg.env):
+        use_ref_actions = True
+
+    class motion_reference(F1DHStandCfg.motion_reference):
+        stand_uses_default_pose = False
+        reset_root_orientation = True
+        reset_root_velocity = True
+
+    class commands(F1DHStandCfg.commands):
+        curriculum = False
+        gait = ["walk_omnidirectional"]
+        sw_switch = False
+        stand_com_threshold = -1.0
+
+    class rewards(F1DHStandCfg.rewards):
+        class scales(F1DHStandCfg.rewards.scales):
+            # Motion imitation objectives.
+            ref_joint_pos = 6.0
+            motion_dof_vel = 1.0
+            motion_root_height = 2.0
+            motion_root_orientation = 1.5
+            motion_root_lin_vel = 1.0
+            motion_root_ang_vel = 0.5
+            # Current NPZ has no foot contact labels yet; enable after adding foot_contacts.
+            motion_contact_schedule = 0.0
+
+            # Old gait/command heuristics reduced or disabled.
+            feet_clearance = 0.1
+            feet_contact_number = 0.0
+            feet_air_time = 0.0
+            tracking_lin_vel = 0.2
+            tracking_ang_vel = 0.1
+            low_speed = 0.0
+            track_vel_hard = 0.0
+            stand_still = 0.0
+            default_joint_pos = 0.2
+
+            # Stability and safety guards.
+            orientation = 0.3
+            feet_rotation = 0.1
+            base_height = 0.0
+            base_acc = 0.1
+            foot_slip = -0.08
+            feet_distance = 0.15
+            knee_distance = 0.15
+            feet_contact_forces = -0.01
+            action_smoothness = -0.002
+            torques = -8e-9
+            dof_vel = -1e-8
+            dof_acc = -1e-7
+            collision = -1.0
+            dof_vel_limits = -1.0
+            dof_pos_limits = -10.0
+            dof_torque_limits = -0.1
+
+
+class F1DHMotionImitationCfgPPO(F1DHStandCfgPPO):
+    class runner(F1DHStandCfgPPO.runner):
+        experiment_name = 'f1_dh_motion_imitation'

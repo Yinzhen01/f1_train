@@ -17,6 +17,10 @@ MOTION_TENSOR_KEYS = (
     "dof_vel",
 )
 
+OPTIONAL_MOTION_TENSOR_KEYS = (
+    "foot_contacts",
+)
+
 
 def load_urdf_actuated_joint_names(urdf_path: str) -> list:
     """Return non-fixed URDF joint names in asset order."""
@@ -82,6 +86,15 @@ class MotionLoader:
                     f"Motion key {key} has {value.shape[0]} frames, expected {self.frame_count}"
                 )
             self.tensors[key] = value
+        for key in OPTIONAL_MOTION_TENSOR_KEYS:
+            if key not in data.files:
+                continue
+            value = torch.as_tensor(data[key], dtype=torch.float32, device=self.device)
+            if value.shape[0] != self.frame_count:
+                raise ValueError(
+                    f"Motion key {key} has {value.shape[0]} frames, expected {self.frame_count}"
+                )
+            self.tensors[key] = value
 
         self._validate_shapes()
 
@@ -94,6 +107,8 @@ class MotionLoader:
             raise ValueError("dof_pos width must match joint_names")
         if self.tensors["dof_vel"].shape != self.tensors["dof_pos"].shape:
             raise ValueError("dof_vel shape must match dof_pos")
+        if "foot_contacts" in self.tensors and self.tensors["foot_contacts"].shape[1] != 2:
+            raise ValueError("foot_contacts must have shape [T, 2]")
 
     def sample_by_phase(self, phase: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Sample reference state at normalized phase in [0, 1)."""
