@@ -34,6 +34,7 @@ class F1DHStandEnv(X1DHStandEnv):
         super()._init_buffers()
         self.motion_loader = None
         self.motion_time_offsets = torch.zeros(self.num_envs, device=self.device)
+        self.ref_action = torch.zeros((self.num_envs, self.num_actions), device=self.device)
         self.ref_dof_vel = torch.zeros_like(self.dof_vel)
         self.ref_root_pos = torch.zeros((self.num_envs, 3), device=self.device)
         self.ref_root_quat = torch.zeros((self.num_envs, 4), device=self.device)
