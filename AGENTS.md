@@ -127,7 +127,7 @@ Keep this file concise: register the existence, location, and reason for each du
 Git commit and push rules:
 
 1. Use Chinese commit messages for future commits.
-2. Split commits by meaningful topic; do not bundle unrelated changes into one large commit.
+2. Before committing, analyze whether the pending changes belong in one commit or multiple commits. Use one commit only when the changes share a single meaningful topic; split unrelated or independently reviewable changes into separate commits.
 3. Review `git status` and staged diffs before committing to avoid mixing unrelated files.
 4. Do not commit local-only files, temporary payloads, cloud artifacts, logs, checkpoints, exported models, credentials, tokens, passwords, signed URLs, or recharge records.
 5. A commit does not imply a push. Push only when the user explicitly asks for it, and check branch/remote/worktree state first.
