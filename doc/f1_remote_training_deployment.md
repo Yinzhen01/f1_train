@@ -192,6 +192,26 @@ CUDA_VISIBLE_DEVICES=0 WANDB_MODE=offline python humanoid/scripts/train.py \
 
 如果远端有云桌面/图形界面，可以不加 `--headless`，让 Isaac Gym 打开 viewer 做可视化 smoke test。
 
+新机器/新云桌面优先使用一键引导脚本：
+
+```bash
+bash ops/gradmotion/bootstrap-gui-desktop.sh
+```
+
+该脚本会依次执行 `git pull`、`python -m pip install -e .`、环境检查、单环境 viewer smoke test 和 16 环境 viewer smoke test。正式长训练不会默认启动，需要显式加：
+
+```bash
+RUN_NAME=f1_29dof_v1 bash ops/gradmotion/bootstrap-gui-desktop.sh --train
+```
+
+如果只想多跑一个 headless smoke test：
+
+```bash
+bash ops/gradmotion/bootstrap-gui-desktop.sh --headless-smoke
+```
+
+下面是手动拆解流程。
+
 先确认图形环境：
 
 ```bash

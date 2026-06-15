@@ -79,6 +79,22 @@ For the full URDF and retargeted motion directory layout, variant naming, and re
 doc/resource_layout.md
 ```
 
+## Gradmotion GUI Desktop Entry Point
+
+When the user asks how to use a new Gradmotion GUI cloud desktop for training, start from:
+
+```bash
+bash ops/gradmotion/bootstrap-gui-desktop.sh
+```
+
+This one-shot bootstrap runs `git pull`, installs the checkout into the active Python environment, checks GPU/DISPLAY/Isaac Gym/PyTorch/F1 task shape, then runs `gui-single` and `gui-smoke` viewer smoke tests. It does not start formal long training unless the user explicitly asks for it or passes `--train`.
+
+For the detailed manual and scripted GUI workflow, use:
+
+```text
+doc/f1_remote_training_deployment.md
+```
+
 ## AGENTS.md Registration Policy
 
 Register content here only when a future agent should know it before acting in this repository.
