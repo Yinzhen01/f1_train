@@ -18,6 +18,7 @@ Usage:
   bash ops/gradmotion/gui-desktop-train.sh <command> [extra train/play args]
 
 Commands:
+  install           Install this checkout into the active Python environment.
   check             Check DISPLAY, GPU, Isaac Gym, PyTorch, and F1 task shape.
   gui-smoke         Run Isaac Gym viewer smoke test. Default: NUM_ENVS=16 MAX_ITERATIONS=10.
   gui-single        Run the lightest viewer smoke test. Default: NUM_ENVS=1 MAX_ITERATIONS=10.
@@ -39,6 +40,7 @@ Environment overrides:
   TENSORBOARD_PORT=6006
 
 Examples:
+  bash ops/gradmotion/gui-desktop-train.sh install
   bash ops/gradmotion/gui-desktop-train.sh check
   bash ops/gradmotion/gui-desktop-train.sh gui-single
   NUM_ENVS=16 MAX_ITERATIONS=10 bash ops/gradmotion/gui-desktop-train.sh gui-smoke
@@ -58,6 +60,7 @@ ensure_repo_root() {
     echo "Cannot find humanoid/scripts/train.py under ${REPO_ROOT}" >&2
     exit 1
   fi
+  export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 }
 
 ensure_display() {
@@ -95,6 +98,26 @@ print("torch cuda:", torch.version.cuda)
 PY
 }
 
+check_required_python_modules() {
+  "${PYTHON_BIN}" - <<'PY'
+import importlib.util
+import sys
+
+missing = [
+    name for name in ("wandb",)
+    if importlib.util.find_spec(name) is None
+]
+if missing:
+    print("Missing Python modules: " + ", ".join(missing), file=sys.stderr)
+    print("Run one of these in the active cloud-desktop environment:", file=sys.stderr)
+    print("  python -m pip install -e .", file=sys.stderr)
+    print("  python -m pip install " + " ".join(missing), file=sys.stderr)
+    sys.exit(2)
+
+print("required Python modules ok")
+PY
+}
+
 check_task_shape() {
   "${PYTHON_BIN}" - <<PY
 import humanoid.envs
@@ -116,7 +139,14 @@ check_all() {
   ensure_repo_root
   show_basic_env
   check_python_env
+  check_required_python_modules
   check_task_shape
+}
+
+install_project() {
+  ensure_repo_root
+  log "Installing ${REPO_ROOT} into the active Python environment"
+  "${PYTHON_BIN}" -m pip install -e .
 }
 
 default_run_name() {
@@ -132,6 +162,7 @@ run_train() {
   shift 4
 
   ensure_repo_root
+  check_required_python_modules
 
   local num_envs="${NUM_ENVS:-${default_envs}}"
   local max_iterations="${MAX_ITERATIONS:-${default_iterations}}"
@@ -151,7 +182,7 @@ run_train() {
   fi
 
   log "Starting ${mode} training: num_envs=${num_envs}, max_iterations=${max_iterations}, run_name=${run_name}"
-  WANDB_MODE="${WANDB_MODE}" "${cmd[@]}" "$@"
+  PYTHONPATH="${PYTHONPATH}" WANDB_MODE="${WANDB_MODE}" "${cmd[@]}" "$@"
 }
 
 run_tensorboard() {
@@ -163,6 +194,7 @@ run_tensorboard() {
 run_play() {
   ensure_repo_root
   ensure_display
+  check_required_python_modules
 
   local load_run="${LOAD_RUN:-${1:-}}"
   if [[ -z "${load_run}" ]]; then
@@ -172,7 +204,7 @@ run_play() {
   shift || true
 
   log "Starting viewer replay for load_run=${load_run}"
-  WANDB_MODE="${WANDB_MODE}" "${PYTHON_BIN}" humanoid/scripts/play.py \
+  PYTHONPATH="${PYTHONPATH}" WANDB_MODE="${WANDB_MODE}" "${PYTHON_BIN}" humanoid/scripts/play.py \
     "--task=${TASK}" \
     "--load_run=${load_run}" \
     "$@"
@@ -190,6 +222,9 @@ main() {
       ;;
     check)
       check_all
+      ;;
+    install)
+      install_project
       ;;
     gui-smoke)
       run_train "gui" "16" "10" "gui_smoke" "$@"
