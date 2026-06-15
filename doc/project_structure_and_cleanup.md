@@ -14,10 +14,10 @@ Keep only long-lived entry points and core project files in the repository root:
 
 ```text
 AGENTS.md
+CLAUDE.md
 README.md
 README.zh_CN.md
 setup.py
-deploy_f1_remote.sh
 doc/
 humanoid/
 resources/
@@ -34,6 +34,8 @@ doc/
 ```
 
 Human-readable project documentation, workflow records, troubleshooting notes, and handoff guides.
+
+Large README media should live under `doc/assets/` for future additions or reorganizations. Existing root-level `doc/*.gif` and `doc/*.jpg` files may remain until a dedicated link-preserving media cleanup is performed.
 
 ```text
 ops/
@@ -52,6 +54,12 @@ ops/gm-cli/
 ```
 
 gm-cli-specific operational notes and local payload organization.
+
+```text
+ops/gradmotion/
+```
+
+Gradmotion desktop, remote deployment, and interactive training helper scripts.
 
 ```text
 cloud_artifacts/

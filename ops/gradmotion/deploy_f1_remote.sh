@@ -24,21 +24,21 @@ ARCHIVE_PATH=""
 usage() {
   cat <<'EOF'
 Usage:
-  bash deploy_f1_remote.sh --server root@SERVER_IP [options]
-  bash deploy_f1_remote.sh --local-deploy --archive ./agibot_x1_train.tar.gz [options]
+  bash ops/gradmotion/deploy_f1_remote.sh --server root@SERVER_IP [options]
+  bash ops/gradmotion/deploy_f1_remote.sh --local-deploy --archive ./agibot_x1_train.tar.gz [options]
 
 Common examples:
   # Step 1: run on the old/local computer, then manually copy the tar.gz and this script.
-  bash deploy_f1_remote.sh --package-only
+  bash ops/gradmotion/deploy_f1_remote.sh --package-only
 
   # Step 2: run on the new/remote computer after manual copy.
-  bash deploy_f1_remote.sh --local-deploy --archive ./agibot_x1_train.tar.gz --conda-env pointfoot_legged_gym --gpu 0
-  bash deploy_f1_remote.sh --local-deploy --archive ./agibot_x1_train.tar.gz --gpu 0
+  bash ops/gradmotion/deploy_f1_remote.sh --local-deploy --archive ./agibot_x1_train.tar.gz --conda-env pointfoot_legged_gym --gpu 0
+  bash ops/gradmotion/deploy_f1_remote.sh --local-deploy --archive ./agibot_x1_train.tar.gz --gpu 0
 
   # Optional: one-command SSH upload/deploy mode.
-  bash deploy_f1_remote.sh --server root@1.2.3.4
-  bash deploy_f1_remote.sh --server user@1.2.3.4 --conda-env pointfoot_legged_gym --gpu 0
-  bash deploy_f1_remote.sh --server root@1.2.3.4 --skip-smoke
+  bash ops/gradmotion/deploy_f1_remote.sh --server root@1.2.3.4
+  bash ops/gradmotion/deploy_f1_remote.sh --server user@1.2.3.4 --conda-env pointfoot_legged_gym --gpu 0
+  bash ops/gradmotion/deploy_f1_remote.sh --server root@1.2.3.4 --skip-smoke
 
 Options:
   --server HOST          Remote SSH target, for example root@1.2.3.4.
