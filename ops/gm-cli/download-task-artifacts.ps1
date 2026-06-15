@@ -4,6 +4,9 @@ param(
     [string]$ArtifactRoot,
     [string]$InferTrainingRoot = "F:\Projects\agibot_x1_infer\training",
     [string]$SyncToInfer = "true",
+    [int]$ModelLimit = 200,
+    [ValidateSet("latest", "all")]
+    [string]$CheckpointPolicy = "latest",
     [string]$GmCli = "C:\Users\HP\AppData\Roaming\npm\gm.cmd"
 )
 
@@ -45,9 +48,19 @@ if ($info.data.argoLogDownloadUrl) {
     $logText | Set-Content -Encoding UTF8 -Path $logPath
 }
 
-$modelText = & $GmCli task model list --task-id $TaskId
+$modelText = & $GmCli task model list --task-id $TaskId --limit $ModelLimit
 $modelText | Set-Content -Encoding UTF8 -Path $modelListPath
-$models = ($modelText | ConvertFrom-Json).data.rows
+$modelList = $modelText | ConvertFrom-Json
+$models = $modelList.data.rows
+if ($modelList.data.hasNext) {
+    Write-Warning "Model list still has more pages. Increase -ModelLimit or download remaining pages manually."
+}
+if ($CheckpointPolicy -eq "latest") {
+    $models = $models |
+        Where-Object { $_.checkpoint -match "^\d+$" } |
+        Sort-Object @{ Expression = { [int]$_.checkpoint }; Descending = $true } |
+        Select-Object -First 1
+}
 
 foreach ($model in $models) {
     if (-not $model.policUrlDown) {
