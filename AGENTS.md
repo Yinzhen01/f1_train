@@ -108,6 +108,14 @@ Keep this file concise: register the existence, location, and reason for each du
 
 ## Operating Rules
 
+Git commit and push rules:
+
+1. Use Chinese commit messages for future commits.
+2. Split commits by meaningful topic; do not bundle unrelated changes into one large commit.
+3. Review `git status` and staged diffs before committing to avoid mixing unrelated files.
+4. Do not commit local-only files, temporary payloads, cloud artifacts, logs, checkpoints, exported models, credentials, tokens, passwords, signed URLs, or recharge records.
+5. A commit does not imply a push. Push only when the user explicitly asks for it, and check branch/remote/worktree state first.
+
 Before creating, editing, running, stopping, or deleting cloud tasks:
 
 1. Read `doc/gm_cli_task_submission_workflow.md`.
