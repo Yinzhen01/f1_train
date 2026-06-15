@@ -62,6 +62,7 @@ create-*.json
 edit-*.json
 copy-*.json
 ops/gm-cli/payloads/
+ops/gm-cli/accounts.local.json
 
 # other
 *.egg-info

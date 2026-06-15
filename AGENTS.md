@@ -30,6 +30,12 @@ doc/gm_cli_task_submission_workflow.md
 Detailed gm-cli cloud task submission workflow, including resource/image/project lookup, create JSON templates, dry-run/create/run/log commands, successful task records, private GitHub troubleshooting, and formal training recommendations.
 
 ```text
+doc/gm_multi_account_workflow.md
+```
+
+Gradmotion multi-account application, gm-cli profile setup, local-only account ledger, quota estimation from initial credit/unit price/runtime, pre-submission account checks, task naming, and failure handling.
+
+```text
 doc/f1_remote_training_deployment.md
 ```
 
@@ -52,6 +58,26 @@ to_infer/f1_checkpoint_inference_handoff.md
 ```
 
 Inference-facing F1 checkpoint handoff notes, including the deployment input shape, observation layout, joint/action order, action post-processing, default pose, PD gains, history buffer behavior, and task/checkpoint selection caveats.
+
+```text
+doc/resource_layout.md
+```
+
+URDF model and retargeted motion directory layout, variant naming (perfect/physically mirrored), currently active F1 model, and related code entry points.
+
+## Key Resource Pointers
+
+Currently active model for F1 training:
+
+```text
+resources/robots/f1_v1.5/urdf/F1_29DOF_perfect_mirrored.urdf
+```
+
+For the full URDF and retargeted motion directory layout, variant naming, and related code entry points, use:
+
+```text
+doc/resource_layout.md
+```
 
 ## AGENTS.md Registration Policy
 

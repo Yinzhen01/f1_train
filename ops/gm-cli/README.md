@@ -8,6 +8,12 @@ Detailed workflow:
 ../../doc/gm_cli_task_submission_workflow.md
 ```
 
+Multi-account workflow:
+
+```text
+../../doc/gm_multi_account_workflow.md
+```
+
 Project structure policy:
 
 ```text
@@ -29,6 +35,16 @@ ops/gm-cli/payloads/
 ```
 
 Payloads such as `create-*.json`, `edit-*.json`, and `copy-*.json` are local operational files and should not be committed.
+
+## Local Account Ledger
+
+For multiple Gradmotion accounts, keep the local account ledger here:
+
+```text
+ops/gm-cli/accounts.local.json
+```
+
+This ledger is ignored by Git and must not contain API keys, passwords, GitHub tokens, signed URLs, or recharge records. Store only profile names, status, project/resource preferences, estimated quota fields, task usage records, and operational notes.
 
 Known-good local payload:
 
