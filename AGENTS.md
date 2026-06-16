@@ -42,6 +42,18 @@ doc/f1_remote_training_deployment.md
 Remote training deployment and environment notes for F1 training, including local/remote setup, smoke tests, viewer/headless usage, monitoring, and deployment helper script context.
 
 ```text
+doc/gradmotion_reverse_ssh_gui_workflow.md
+```
+
+Gradmotion reverse SSH workflow for letting Codex operate a GUI cloud desktop through a public jump host while keeping windows visible on the user's active desktop session, including DISPLAY/XAUTHORITY handling and cleanup rules.
+
+```text
+doc/gradmotion_codex_gui_minimal_repro.md
+```
+
+Minimal reproduction checklist for reconnecting Codex to a new Gradmotion GUI cloud desktop through reverse SSH, validating visible GUI windows, running viewer smoke tests, and cleaning up temporary access.
+
+```text
 doc/project_structure_and_cleanup.md
 ```
 
@@ -93,6 +105,19 @@ For the detailed manual and scripted GUI workflow, use:
 
 ```text
 doc/f1_remote_training_deployment.md
+```
+
+When Codex needs to operate the Gradmotion GUI desktop remotely while the user watches the interface, use:
+
+```text
+doc/gradmotion_codex_gui_minimal_repro.md
+doc/gradmotion_reverse_ssh_gui_workflow.md
+```
+
+For a fresh Gradmotion GUI desktop that has already cloned this repository, the preferred one-shot entry point is:
+
+```bash
+bash ops/gradmotion/start-codex-tunnel.sh
 ```
 
 ## AGENTS.md Registration Policy
