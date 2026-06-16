@@ -12,7 +12,7 @@ GUI_HELPER="${SCRIPT_DIR}/gui-desktop-train.sh"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 TASK="${TASK:-f1_dh_stand}"
 WANDB_MODE="${WANDB_MODE:-offline}"
-DISPLAY="${DISPLAY:-:0}"
+DISPLAY="${DISPLAY:-}"
 
 DO_GIT_PULL="${DO_GIT_PULL:-1}"
 DO_INSTALL="${DO_INSTALL:-1}"
@@ -58,7 +58,7 @@ Environment overrides:
   PYTHON_BIN=python
   TASK=f1_dh_stand
   WANDB_MODE=offline
-  DISPLAY=:0
+  DISPLAY=:1
   GUI_SINGLE_ENVS=1
   GUI_SINGLE_ITERS=10
   GUI_SMOKE_ENVS=16

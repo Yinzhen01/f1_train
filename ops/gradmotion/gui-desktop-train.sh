@@ -11,6 +11,7 @@ TASK="${TASK:-f1_dh_stand}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 TENSORBOARD_PORT="${TENSORBOARD_PORT:-6006}"
+GUI_USER="${GUI_USER:-}"
 
 usage() {
   cat <<'EOF'
@@ -20,6 +21,8 @@ Usage:
 Commands:
   install           Install this checkout into the active Python environment.
   check             Check DISPLAY, GPU, Isaac Gym, PyTorch, and F1 task shape.
+  gui-env           Print detected GUI DISPLAY/XAUTHORITY settings.
+  open-app          Open a small GUI app on the cloud desktop. Default: xclock.
   gui-smoke         Run Isaac Gym viewer smoke test. Default: NUM_ENVS=16 MAX_ITERATIONS=10.
   gui-single        Run the lightest viewer smoke test. Default: NUM_ENVS=1 MAX_ITERATIONS=10.
   headless-smoke    Run a small headless smoke test. Default: NUM_ENVS=64 MAX_ITERATIONS=20.
@@ -36,12 +39,15 @@ Environment overrides:
   CUDA_VISIBLE_DEVICES=0
   WANDB_MODE=offline
   DISPLAY=:0
+  GUI_USER=<desktop_user>
   PYTHON_BIN=python
   TENSORBOARD_PORT=6006
 
 Examples:
   bash ops/gradmotion/gui-desktop-train.sh install
   bash ops/gradmotion/gui-desktop-train.sh check
+  bash ops/gradmotion/gui-desktop-train.sh gui-env
+  bash ops/gradmotion/gui-desktop-train.sh open-app xclock
   bash ops/gradmotion/gui-desktop-train.sh gui-single
   NUM_ENVS=16 MAX_ITERATIONS=10 bash ops/gradmotion/gui-desktop-train.sh gui-smoke
   NUM_ENVS=4096 MAX_ITERATIONS=3000 RUN_NAME=f1_29dof_v1 bash ops/gradmotion/gui-desktop-train.sh train
@@ -64,11 +70,73 @@ ensure_repo_root() {
 }
 
 ensure_display() {
+  local detected_display=""
+  local detected_user=""
+
   if [[ -z "${DISPLAY:-}" ]]; then
-    export DISPLAY=":0"
-    log "DISPLAY was empty; using DISPLAY=:0"
+    if command -v who >/dev/null 2>&1; then
+      detected_display="$(
+        who | awk 'match($0, /\(:[0-9]+(\.[0-9]+)?\)/) { print substr($0, RSTART + 1, RLENGTH - 2); exit }'
+      )"
+    fi
+
+    if [[ -z "${detected_display}" && -d /tmp/.X11-unix ]]; then
+      detected_display="$(
+        find /tmp/.X11-unix -maxdepth 1 -type s -name 'X*' -printf '%f\n' 2>/dev/null \
+          | sed 's/^X/:/' \
+          | sort -V \
+          | head -n 1
+      )"
+    fi
+
+    export DISPLAY="${detected_display:-:0}"
+    log "DISPLAY was empty; using DISPLAY=${DISPLAY}"
   else
     log "DISPLAY=${DISPLAY}"
+  fi
+
+  if [[ -z "${GUI_USER}" ]] && command -v who >/dev/null 2>&1; then
+    detected_user="$(
+      who | awk 'match($0, /\(:[0-9]+(\.[0-9]+)?\)/) { print $1; exit }'
+    )"
+    GUI_USER="${detected_user}"
+  fi
+
+  if [[ -z "${XAUTHORITY:-}" && -n "${GUI_USER}" ]] && command -v getent >/dev/null 2>&1; then
+    local gui_home=""
+    gui_home="$(getent passwd "${GUI_USER}" | cut -d: -f6 || true)"
+    if [[ -n "${gui_home}" && -f "${gui_home}/.Xauthority" ]]; then
+      export XAUTHORITY="${gui_home}/.Xauthority"
+      log "XAUTHORITY=${XAUTHORITY}"
+    fi
+  elif [[ -n "${XAUTHORITY:-}" ]]; then
+    log "XAUTHORITY=${XAUTHORITY}"
+  fi
+}
+
+show_gui_env() {
+  ensure_display
+  log "GUI_USER=${GUI_USER:-<empty>}"
+  log "DISPLAY=${DISPLAY:-<empty>}"
+  log "XAUTHORITY=${XAUTHORITY:-<empty>}"
+  if [[ -d /tmp/.X11-unix ]]; then
+    ls -la /tmp/.X11-unix
+  fi
+}
+
+open_gui_app() {
+  ensure_display
+
+  local app="${1:-xclock}"
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+
+  log "Opening GUI app on the cloud desktop: ${app} $*"
+  if [[ -n "${GUI_USER}" && "${GUI_USER}" != "$(id -un)" ]] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "${GUI_USER}" -- env DISPLAY="${DISPLAY}" XAUTHORITY="${XAUTHORITY:-}" setsid -f "${app}" "$@"
+  else
+    env DISPLAY="${DISPLAY}" XAUTHORITY="${XAUTHORITY:-}" setsid -f "${app}" "$@"
   fi
 }
 
@@ -78,6 +146,7 @@ show_basic_env() {
   log "Python: ${PYTHON_BIN}"
   log "WANDB_MODE=${WANDB_MODE}"
   log "DISPLAY=${DISPLAY:-<empty>}"
+  log "XAUTHORITY=${XAUTHORITY:-<empty>}"
 
   if command -v nvidia-smi >/dev/null 2>&1; then
     nvidia-smi
@@ -137,6 +206,7 @@ PY
 
 check_all() {
   ensure_repo_root
+  ensure_display
   show_basic_env
   check_python_env
   check_required_python_modules
@@ -225,6 +295,12 @@ main() {
       ;;
     install)
       install_project
+      ;;
+    gui-env)
+      show_gui_env
+      ;;
+    open-app)
+      open_gui_app "$@"
       ;;
     gui-smoke)
       run_train "gui" "16" "10" "gui_smoke" "$@"
