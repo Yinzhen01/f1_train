@@ -12,6 +12,9 @@ WANDB_MODE="${WANDB_MODE:-offline}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 TENSORBOARD_PORT="${TENSORBOARD_PORT:-6006}"
 GUI_USER="${GUI_USER:-}"
+GUI_HOLD_LOG="${GUI_HOLD_LOG:-/tmp/codex_isaac_viewer_hold.log}"
+GUI_HOLD_PID_FILE="${GUI_HOLD_PID_FILE:-/tmp/codex_isaac_viewer_hold.pid}"
+GUI_HOLD_RUN_NAME="${GUI_HOLD_RUN_NAME:-codex_gui_viewer_hold}"
 
 usage() {
   cat <<'EOF'
@@ -23,6 +26,9 @@ Commands:
   check             Check DISPLAY, GPU, Isaac Gym, PyTorch, and F1 task shape.
   gui-env           Print detected GUI DISPLAY/XAUTHORITY settings.
   open-app          Open a small GUI app on the cloud desktop. Default: xclock.
+  gui-hold          Start a detached long-lived 1-env Isaac Gym viewer.
+  stop-gui-hold     Stop the detached viewer started by gui-hold.
+  gui-hold-status   Show detached viewer PID/log status.
   gui-smoke         Run Isaac Gym viewer smoke test. Default: NUM_ENVS=16 MAX_ITERATIONS=10.
   gui-single        Run the lightest viewer smoke test. Default: NUM_ENVS=1 MAX_ITERATIONS=10.
   headless-smoke    Run a small headless smoke test. Default: NUM_ENVS=64 MAX_ITERATIONS=20.
@@ -40,6 +46,9 @@ Environment overrides:
   WANDB_MODE=offline
   DISPLAY=:0
   GUI_USER=<desktop_user>
+  GUI_HOLD_LOG=/tmp/codex_isaac_viewer_hold.log
+  GUI_HOLD_PID_FILE=/tmp/codex_isaac_viewer_hold.pid
+  GUI_HOLD_RUN_NAME=codex_gui_viewer_hold
   PYTHON_BIN=python
   TENSORBOARD_PORT=6006
 
@@ -48,6 +57,8 @@ Examples:
   bash ops/gradmotion/gui-desktop-train.sh check
   bash ops/gradmotion/gui-desktop-train.sh gui-env
   bash ops/gradmotion/gui-desktop-train.sh open-app xclock
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold
+  bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
   bash ops/gradmotion/gui-desktop-train.sh gui-single
   NUM_ENVS=16 MAX_ITERATIONS=10 bash ops/gradmotion/gui-desktop-train.sh gui-smoke
   NUM_ENVS=4096 MAX_ITERATIONS=3000 RUN_NAME=f1_29dof_v1 bash ops/gradmotion/gui-desktop-train.sh train
@@ -255,6 +266,118 @@ run_train() {
   PYTHONPATH="${PYTHONPATH}" WANDB_MODE="${WANDB_MODE}" "${cmd[@]}" "$@"
 }
 
+find_gui_hold_pids() {
+  local run_name="${RUN_NAME:-${GUI_HOLD_RUN_NAME}}"
+  pgrep -f "humanoid/scripts/train.py.*--run_name=${run_name}" || true
+}
+
+run_gui_hold_status() {
+  local pids
+  pids="$(find_gui_hold_pids)"
+  log "GUI_HOLD_RUN_NAME=${RUN_NAME:-${GUI_HOLD_RUN_NAME}}"
+  log "GUI_HOLD_PID_FILE=${GUI_HOLD_PID_FILE}"
+  log "GUI_HOLD_LOG=${GUI_HOLD_LOG}"
+
+  if [[ -f "${GUI_HOLD_PID_FILE}" ]]; then
+    log "PID file: $(cat "${GUI_HOLD_PID_FILE}")"
+  else
+    log "PID file: <missing>"
+  fi
+
+  if [[ -n "${pids}" ]]; then
+    log "Running detached viewer PID(s): ${pids//$'\n'/ }"
+  else
+    log "No detached viewer process found"
+  fi
+
+  if [[ -f "${GUI_HOLD_LOG}" ]]; then
+    log "Last 20 log lines:"
+    tail -n 20 "${GUI_HOLD_LOG}"
+  fi
+}
+
+run_gui_hold() {
+  local extra_args=("$@")
+
+  ensure_repo_root
+  ensure_display
+  check_required_python_modules
+
+  local existing_pids
+  existing_pids="$(find_gui_hold_pids)"
+  if [[ -n "${existing_pids}" ]]; then
+    log "Detached viewer already running: ${existing_pids//$'\n'/ }"
+    log "Use 'stop-gui-hold' before starting another detached viewer with the same run name."
+    return
+  fi
+
+  local num_envs="${NUM_ENVS:-1}"
+  local max_iterations="${MAX_ITERATIONS:-100000}"
+  local run_name="${RUN_NAME:-${GUI_HOLD_RUN_NAME}}"
+
+  local cmd=(
+    "${PYTHON_BIN}" "humanoid/scripts/train.py"
+    "--task=${TASK}"
+    "--num_envs=${num_envs}"
+    "--max_iterations=${max_iterations}"
+    "--run_name=${run_name}"
+  )
+  cmd+=("${extra_args[@]}")
+
+  log "Starting detached GUI viewer: num_envs=${num_envs}, max_iterations=${max_iterations}, run_name=${run_name}"
+  log "Log file: ${GUI_HOLD_LOG}"
+
+  nohup env \
+    PYTHONPATH="${PYTHONPATH}" \
+    WANDB_MODE="${WANDB_MODE}" \
+    DISPLAY="${DISPLAY}" \
+    XAUTHORITY="${XAUTHORITY:-}" \
+    "${cmd[@]}" \
+    >"${GUI_HOLD_LOG}" 2>&1 < /dev/null &
+
+  local pid=$!
+  printf '%s\n' "${pid}" > "${GUI_HOLD_PID_FILE}"
+  sleep 1
+
+  if kill -0 "${pid}" 2>/dev/null; then
+    log "Detached viewer started with PID ${pid}"
+  else
+    echo "Detached viewer exited immediately. Log tail:" >&2
+    tail -n 40 "${GUI_HOLD_LOG}" >&2 || true
+    exit 1
+  fi
+}
+
+stop_gui_hold() {
+  local run_name="${RUN_NAME:-${GUI_HOLD_RUN_NAME}}"
+  local stopped=0
+
+  if [[ -f "${GUI_HOLD_PID_FILE}" ]]; then
+    local pid
+    pid="$(cat "${GUI_HOLD_PID_FILE}")"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      log "Stopping detached viewer PID ${pid}"
+      kill "${pid}" 2>/dev/null || true
+      stopped=1
+    fi
+    rm -f "${GUI_HOLD_PID_FILE}"
+  fi
+
+  local pids
+  pids="$(find_gui_hold_pids)"
+  if [[ -n "${pids}" ]]; then
+    log "Stopping detached viewer process(es) for run_name=${run_name}: ${pids//$'\n'/ }"
+    pkill -f "humanoid/scripts/train.py.*--run_name=${run_name}" || true
+    stopped=1
+  fi
+
+  if [[ "${stopped}" == "1" ]]; then
+    log "Detached viewer stop requested"
+  else
+    log "No detached viewer process found"
+  fi
+}
+
 run_tensorboard() {
   ensure_repo_root
   log "Starting TensorBoard at http://localhost:${TENSORBOARD_PORT}"
@@ -301,6 +424,15 @@ main() {
       ;;
     open-app)
       open_gui_app "$@"
+      ;;
+    gui-hold)
+      run_gui_hold "$@"
+      ;;
+    stop-gui-hold)
+      stop_gui_hold
+      ;;
+    gui-hold-status)
+      run_gui_hold_status
       ;;
     gui-smoke)
       run_train "gui" "16" "10" "gui_smoke" "$@"

@@ -240,6 +240,30 @@ bash ops/gradmotion/gui-desktop-train.sh gui-single
 bash ops/gradmotion/gui-desktop-train.sh gui-smoke
 ```
 
+如果需要让 Isaac Gym viewer 长时间留在云桌面里，不要直接挂在当前 SSH 会话下，使用后台保持模式：
+
+```bash
+bash ops/gradmotion/gui-desktop-train.sh gui-hold
+```
+
+该命令会用 `nohup` 在后台启动 1 环境 viewer，并把日志写到：
+
+```text
+/tmp/codex_isaac_viewer_hold.log
+```
+
+查看状态：
+
+```bash
+bash ops/gradmotion/gui-desktop-train.sh gui-hold-status
+```
+
+关闭后台 viewer：
+
+```bash
+bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
+```
+
 如果自动探测失败，手动带上 GUI 环境：
 
 ```bash
