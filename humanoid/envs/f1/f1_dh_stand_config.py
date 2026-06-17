@@ -173,7 +173,7 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
         termination_ref_joint_grace_steps = 0
         termination_support_rect_margin = 0.10
         termination_world_keypoint_thresholds = (
-            ("ankle", ("ankle",), 0.08),
+            ("ankle", ("ankle",), 0.10),
             ("head_neck", ("head", "neck"), 0.15),
         )
 

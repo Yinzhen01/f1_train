@@ -324,6 +324,30 @@ TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
 
 motion imitation 默认保留小权重的逐关节角度位置奖励作为辅助姿态先验，但不把它作为主要模仿约束，也不默认使用逐关节角度误差做硬 reset。后续应优先使用 body/keypoint 的空间位置误差来约束重定向动作；`TERMINATION_SUPPORT_RECT_MARGIN` 会在质量加权 CoM 的 XY 越出双脚当前位置构成的轴对齐矩形时提前 reset，单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
 
+当前 `f1_dh_motion_imitation` 的关键点模仿使用对齐后的 world-space 关键点误差：`ref_keypoint_pos` 比较当前机器人关键点 world 位置和参考动作关键点 world 位置。若 motion NPZ 含 `body_pos/body_names`，默认硬 reset 规则为：
+
+```text
+ankle world error > 0.10 m
+head/neck world error > 0.15 m
+```
+
+在 24GB Gradmotion GUI 云桌面上，正式训练建议先用 3000 环境而不是直接使用脚本默认 4096 环境；当前已验证 `NUM_ENVS=3000` 可运行，显存约 18GB：
+
+```bash
+cd /root/limx_rl/f1_train
+TASK=f1_dh_motion_imitation NUM_ENVS=3000 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_world_keypoint_cutoff_10cm_3000env_YYYYMMDD \
+  MOTION_REFERENCE_FILE='{LEGGED_GYM_ROOT_DIR}/resources/motions/f1/v1.5/processed/07_03_walk_yup_recwalk_base_lowerbody_smooth_p8_120_180_groundfit_minima_safe_bodypos_head_wrist.npz' \
+  TERRAIN_MESH_TYPE=plane DOMAIN_RANDOMIZE_ALL=false \
+  MOTION_RANDOMIZE_START_PHASE=false \
+  TERMINATION_MIN_BASE_HEIGHT=0.52 \
+  TERMINATION_MAX_REF_ROOT_XY_DISTANCE=0.5 \
+  TERMINATION_SUPPORT_RECT_MARGIN=0.05 \
+  REF_KEYPOINT_POS_SCALE=2.0 MOTION_KEYPOINT_POS_SIGMA=20.0 \
+  WANDB_MODE=offline \
+  bash ops/gradmotion/gui-desktop-train.sh train
+```
+
 使用自定义 `RUN_NAME` 后，查看状态和关闭时也要带同一个 `RUN_NAME`：
 
 ```bash

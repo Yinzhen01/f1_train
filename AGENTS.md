@@ -130,7 +130,7 @@ TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
   bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
 ```
 
-This is preferred over `f1_dh_stand` for motion imitation because `f1_dh_motion_imitation` enables reference actions, root orientation/velocity reset, and nonzero motion root/velocity/orientation reward scales. Use `doc/gradmotion_codex_gui_minimal_repro.md` and `doc/gradmotion_reverse_ssh_gui_workflow.md` for the detailed checks.
+This is preferred over `f1_dh_stand` for motion imitation because `f1_dh_motion_imitation` enables reference actions, root orientation/velocity reset, and nonzero motion root/velocity/orientation reward scales. Use `doc/gradmotion_codex_gui_minimal_repro.md` and `doc/gradmotion_reverse_ssh_gui_workflow.md` for detailed checks, including world-space keypoint reward, keypoint reset thresholds, and the current 3000-env Gradmotion training baseline.
 
 ## AGENTS.md Registration Policy
 
