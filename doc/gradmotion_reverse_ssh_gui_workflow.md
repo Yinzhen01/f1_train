@@ -345,14 +345,15 @@ TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
   TERRAIN_MESH_TYPE=plane \
   TERMINATION_MIN_BASE_HEIGHT=0.40 \
   TERMINATION_MAX_REF_ROOT_XY_DISTANCE=0.5 \
-  TERMINATION_MAX_REF_JOINT_POS_ERROR=0.3 \
   TERMINATION_SUPPORT_RECT_MARGIN=0.10 \
   JOINT_DIAG_INTERVAL=50 JOINT_DIAG_TOPK=12 TERMINATION_DIAG_INTERVAL=50 \
   VIEWER_REL_POS=1.0,-0.85,0.85 VIEWER_REL_LOOKAT=0,0,0.65 \
   bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
 ```
 
-`TERMINATION_MIN_BASE_HEIGHT` 用于判定 base/root 高度过低，`TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 用于判定机器人相对 reset 对齐后的重定向 root XY 轨迹偏离过远，`TERMINATION_MAX_REF_JOINT_POS_ERROR` 用于判定任一关节位置相对重定向参考偏离过大，`TERMINATION_SUPPORT_RECT_MARGIN` 用于判定质量加权 CoM 的 XY 是否越出双脚当前位置构成的轴对齐矩形。后者的单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
+`TERMINATION_MIN_BASE_HEIGHT` 用于判定 base/root 高度过低，`TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 用于判定机器人相对 reset 对齐后的重定向 root XY 轨迹偏离过远，`TERMINATION_SUPPORT_RECT_MARGIN` 用于判定质量加权 CoM 的 XY 是否越出双脚当前位置构成的轴对齐矩形。后者的单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
+
+motion imitation 默认保留小权重的逐关节角度位置奖励作为辅助姿态先验，但不把它作为主要模仿约束，也不默认使用 `TERMINATION_MAX_REF_JOINT_POS_ERROR` 做硬 reset。后续应优先使用 body/keypoint 的空间位置误差来约束重定向动作。
 
 `TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 必须比较对齐后的参考轨迹；不能直接用 motion NPZ 的绝对 root XY 坐标，否则 motion 文件自带的全局位置偏移会造成刚 reset 就触发失败。
 

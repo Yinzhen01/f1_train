@@ -34,6 +34,14 @@ def _parse_bool(name):
     raise ValueError(f"{name} must be true/false, got: {raw}")
 
 
+def _parse_optional_float(raw):
+    if raw is None:
+        return None
+    if raw.strip().lower() in ("", "none", "null", "off", "false", "disabled"):
+        return None
+    return float(raw)
+
+
 def _reward_scale(cfg, name):
     return getattr(cfg.rewards.scales, name, None)
 
@@ -505,8 +513,10 @@ def train(args):
     if termination_max_ref_root_xyz_distance:
         env_cfg.rewards.termination_max_ref_root_xyz_distance = float(termination_max_ref_root_xyz_distance)
     termination_max_ref_joint_pos_error = os.environ.get("TERMINATION_MAX_REF_JOINT_POS_ERROR")
-    if termination_max_ref_joint_pos_error:
-        env_cfg.rewards.termination_max_ref_joint_pos_error = float(termination_max_ref_joint_pos_error)
+    if termination_max_ref_joint_pos_error is not None:
+        env_cfg.rewards.termination_max_ref_joint_pos_error = _parse_optional_float(
+            termination_max_ref_joint_pos_error
+        )
     termination_ref_joint_grace_steps = os.environ.get("TERMINATION_REF_JOINT_GRACE_STEPS")
     if termination_ref_joint_grace_steps is not None:
         env_cfg.rewards.termination_ref_joint_grace_steps = int(termination_ref_joint_grace_steps)

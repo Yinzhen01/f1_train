@@ -155,16 +155,18 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
         termination_min_base_height = 0.50
         termination_max_ref_root_xy_distance = 0.5
         termination_max_ref_root_xyz_distance = None
-        termination_max_ref_joint_pos_error = 0.3
+        termination_max_ref_joint_pos_error = None
         termination_ref_joint_grace_steps = 0
         termination_support_rect_margin = 0.10
 
         class scales(F1DHStandCfg.rewards.scales):
             # Motion imitation objectives.
-            ref_joint_pos = 0.5
-            ref_lower_body_pos = 8.0
-            ref_lumbar_pos = 2.0
-            ref_upper_body_pos = 0.5
+            # These compare DOF angles, not Cartesian body/keypoint positions.
+            # Keep them as weak auxiliary priors; prefer spatial imitation rewards.
+            ref_joint_pos = 0.1
+            ref_lower_body_pos = 1.0
+            ref_lumbar_pos = 0.25
+            ref_upper_body_pos = 0.1
             motion_dof_vel = 1.0
             motion_lower_body_vel = 1.5
             motion_root_height = 2.0

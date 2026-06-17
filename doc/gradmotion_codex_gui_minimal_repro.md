@@ -314,7 +314,6 @@ TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
   TERRAIN_MESH_TYPE=plane \
   TERMINATION_MIN_BASE_HEIGHT=0.40 \
   TERMINATION_MAX_REF_ROOT_XY_DISTANCE=0.5 \
-  TERMINATION_MAX_REF_JOINT_POS_ERROR=0.3 \
   TERMINATION_SUPPORT_RECT_MARGIN=0.10 \
   JOINT_DIAG_INTERVAL=50 JOINT_DIAG_TOPK=12 TERMINATION_DIAG_INTERVAL=50 \
   VIEWER_REL_POS=1.0,-0.85,0.85 VIEWER_REL_LOOKAT=0,0,0.65 \
@@ -323,7 +322,7 @@ TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
 
 其中 `TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 比较的是 reset 时刻对齐后的 motion root XY 偏离量，不是 NPZ 里的绝对 root XY 坐标。不要直接用未对齐的 `ref_root_pos[:, :2]` 和仿真世界坐标比较，否则 motion 文件自带的全局位移会导致环境一开始就被判定失败。
 
-`TERMINATION_MAX_REF_JOINT_POS_ERROR` 会在任一关节位置相对重定向参考偏离过大时提前 reset；`TERMINATION_SUPPORT_RECT_MARGIN` 会在质量加权 CoM 的 XY 越出双脚当前位置构成的轴对齐矩形时提前 reset，单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
+motion imitation 默认保留小权重的逐关节角度位置奖励作为辅助姿态先验，但不把它作为主要模仿约束，也不默认使用逐关节角度误差做硬 reset。后续应优先使用 body/keypoint 的空间位置误差来约束重定向动作；`TERMINATION_SUPPORT_RECT_MARGIN` 会在质量加权 CoM 的 XY 越出双脚当前位置构成的轴对齐矩形时提前 reset，单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
 
 使用自定义 `RUN_NAME` 后，查看状态和关闭时也要带同一个 `RUN_NAME`：
 
