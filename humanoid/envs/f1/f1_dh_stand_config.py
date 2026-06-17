@@ -32,6 +32,7 @@ class F1DHStandCfg(X1DHStandCfg):
         reset_root_height = True
         reset_root_orientation = False
         reset_root_velocity = False
+        reset_root_height_offset = 0.0
 
     class init_state(X1DHStandCfg.init_state):
         # Retargeted first frame from:
@@ -102,6 +103,12 @@ class F1DHStandCfg(X1DHStandCfg):
         motion_root_orientation_sigma = 8.0
         motion_root_lin_vel_sigma = 4.0
         motion_root_ang_vel_sigma = 3.0
+        termination_min_base_height = None
+        termination_max_ref_root_xy_distance = None
+        termination_max_ref_root_xyz_distance = None
+        termination_max_ref_joint_pos_error = None
+        termination_ref_joint_grace_steps = 0
+        termination_support_rect_margin = None
 
 
 class F1DHStandCfgPPO(X1DHStandCfgPPO):
@@ -136,6 +143,7 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
         stand_uses_default_pose = False
         reset_root_orientation = True
         reset_root_velocity = True
+        reset_root_height_offset = -0.012
 
     class commands(F1DHStandCfg.commands):
         curriculum = False
@@ -144,10 +152,21 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
         stand_com_threshold = -1.0
 
     class rewards(F1DHStandCfg.rewards):
+        termination_min_base_height = 0.50
+        termination_max_ref_root_xy_distance = 0.5
+        termination_max_ref_root_xyz_distance = None
+        termination_max_ref_joint_pos_error = 0.3
+        termination_ref_joint_grace_steps = 0
+        termination_support_rect_margin = 0.10
+
         class scales(F1DHStandCfg.rewards.scales):
             # Motion imitation objectives.
-            ref_joint_pos = 6.0
+            ref_joint_pos = 0.5
+            ref_lower_body_pos = 8.0
+            ref_lumbar_pos = 2.0
+            ref_upper_body_pos = 0.5
             motion_dof_vel = 1.0
+            motion_lower_body_vel = 1.5
             motion_root_height = 2.0
             motion_root_orientation = 1.5
             motion_root_lin_vel = 1.0
@@ -186,5 +205,15 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
 
 
 class F1DHMotionImitationCfgPPO(F1DHStandCfgPPO):
+    class policy(F1DHStandCfgPPO.policy):
+        init_noise_std = 0.12
+
+    class algorithm(F1DHStandCfgPPO.algorithm):
+        entropy_coef = 0.0
+        learning_rate = 5e-6
+        num_learning_epochs = 1
+        num_mini_batches = 2
+
     class runner(F1DHStandCfgPPO.runner):
+        num_steps_per_env = 48
         experiment_name = 'f1_dh_motion_imitation'

@@ -206,15 +206,28 @@ class LeggedRobot(BaseTask):
     def check_termination(self):
         """ Check if environments need to be reset
         """
-        self.reset_buf = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
+        base_contact = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
+        self.reset_buf = base_contact
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         
         roll_cutoff = torch.abs(self.base_euler_xyz[:,0]) > 1.5
         pitch_cutoff = torch.abs(self.base_euler_xyz[:,1]) > 1.5
+        min_base_height = getattr(self.cfg.rewards, "termination_min_base_height", None)
+        if min_base_height is None:
+            height_cutoff = torch.zeros_like(self.reset_buf)
+        else:
+            base_height = self.root_states[:, 2] - self.env_origins[:, 2]
+            height_cutoff = base_height < min_base_height
+
+        self.termination_base_contact_buf = base_contact
+        self.termination_roll_buf = roll_cutoff
+        self.termination_pitch_buf = pitch_cutoff
+        self.termination_height_buf = height_cutoff
 
         self.reset_buf |= self.time_out_buf
         self.reset_buf |= roll_cutoff
         self.reset_buf |= pitch_cutoff
+        self.reset_buf |= height_cutoff
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -571,6 +584,13 @@ class LeggedRobot(BaseTask):
                 props[i].inertia.x.x *= self.link_inertia_x[env_id, i-1]
                 props[i].inertia.y.y *= self.link_inertia_y[env_id, i-1]
                 props[i].inertia.z.z *= self.link_inertia_z[env_id, i-1]
+
+        for i, prop in enumerate(props):
+            self.rigid_body_masses[env_id, i] = prop.mass
+            self.rigid_body_com_offsets[env_id, i, 0] = prop.com.x
+            self.rigid_body_com_offsets[env_id, i, 1] = prop.com.y
+            self.rigid_body_com_offsets[env_id, i, 2] = prop.com.z
+        self.total_mass[env_id] = torch.sum(self.rigid_body_masses[env_id])
                 
         return props
     
@@ -1141,6 +1161,8 @@ class LeggedRobot(BaseTask):
         self.body_mass = torch.zeros(self.num_envs, 1, dtype=torch.float32, device=self.device, requires_grad=False)
         self.init_body_mass = torch.zeros(self.num_envs, 1, dtype=torch.float32, device=self.device, requires_grad=False)
         self.total_mass = torch.zeros(self.num_envs, 1, dtype=torch.float32, device=self.device, requires_grad=False)
+        self.rigid_body_masses = torch.zeros(self.num_envs, self.num_bodies, dtype=torch.float32, device=self.device, requires_grad=False)
+        self.rigid_body_com_offsets = torch.zeros(self.num_envs, self.num_bodies, 3, dtype=torch.float32, device=self.device, requires_grad=False)
         
         self.randomize_rigid_body_props(torch.arange(self.num_envs, device=self.device))
         self.randomize_dof_props(torch.arange(self.num_envs, device=self.device))
