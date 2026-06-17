@@ -190,6 +190,11 @@ def _print_training_context(args, env_cfg):
         getattr(env_cfg.rewards, "motion_keypoint_pos_tokens", None),
         flush=True,
     )
+    print(
+        "rewards.termination_world_keypoint_thresholds:",
+        getattr(env_cfg.rewards, "termination_world_keypoint_thresholds", None),
+        flush=True,
+    )
     print("num_actions:", env_cfg.env.num_actions, flush=True)
     if motion_cfg is not None:
         print("motion_reference.enabled:", motion_cfg.enabled, flush=True)
@@ -904,6 +909,7 @@ def _install_termination_diagnostics(env):
             ref_xy_min, ref_xy_mean, ref_xy_max = _stats_attr("ref_root_xy_distance")
             ref_xyz_min, ref_xyz_mean, ref_xyz_max = _stats_attr("ref_root_xyz_distance")
             ref_joint_min, ref_joint_mean, ref_joint_max = _stats_attr("ref_joint_pos_error_max")
+            world_key_min, world_key_mean, world_key_max = _stats_attr("world_keypoint_termination_error_max")
             support_min, support_mean, support_max = _stats_attr("support_rect_outside_distance")
             print(f"termination_diag_step: {step}", flush=True)
             print(
@@ -915,6 +921,7 @@ def _install_termination_diagnostics(env):
                 f" ref_xy={_sum_bool_attr('termination_ref_root_xy_buf')}"
                 f" ref_xyz={_sum_bool_attr('termination_ref_root_xyz_buf')}"
                 f" ref_joint={_sum_bool_attr('termination_ref_joint_pos_buf')}"
+                f" world_keypoint={_sum_bool_attr('termination_world_keypoint_buf')}"
                 f" support_rect={_sum_bool_attr('termination_support_rect_buf')}"
                 f" timeout={int(env.time_out_buf.sum().item())}"
                 f" reset_total={int(env.reset_buf.sum().item())}"
@@ -930,6 +937,9 @@ def _install_termination_diagnostics(env):
                 f" ref_joint_err_min={ref_joint_min:.6f}"
                 f" ref_joint_err_mean={ref_joint_mean:.6f}"
                 f" ref_joint_err_max={ref_joint_max:.6f}"
+                f" world_keypoint_err_min={world_key_min:.6f}"
+                f" world_keypoint_err_mean={world_key_mean:.6f}"
+                f" world_keypoint_err_max={world_key_max:.6f}"
                 f" support_rect_outside_min={support_min:.6f}"
                 f" support_rect_outside_mean={support_mean:.6f}"
                 f" support_rect_outside_max={support_max:.6f}",

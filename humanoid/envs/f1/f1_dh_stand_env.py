@@ -109,6 +109,8 @@ class F1DHStandEnv(X1DHStandEnv):
         self.ref_body_pos_error = torch.zeros((self.num_envs, 0), device=self.device)
         self.ref_body_pos_error_mean = torch.zeros(self.num_envs, device=self.device)
         self.ref_body_pos_error_max = torch.zeros(self.num_envs, device=self.device)
+        self.termination_world_keypoint_buf = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.world_keypoint_termination_error_max = torch.zeros(self.num_envs, device=self.device)
         self.ref_body_pos_names = []
         self.ref_body_pos_body_indices = torch.zeros(0, dtype=torch.long, device=self.device)
         self.ref_body_pos_motion_indices = torch.zeros(0, dtype=torch.long, device=self.device)
@@ -468,6 +470,7 @@ class F1DHStandEnv(X1DHStandEnv):
         joint_threshold = getattr(self.cfg.rewards, "termination_max_ref_joint_pos_error", None)
         joint_grace_steps = getattr(self.cfg.rewards, "termination_ref_joint_grace_steps", 0)
         support_rect_margin = getattr(self.cfg.rewards, "termination_support_rect_margin", None)
+        world_keypoint_rules = getattr(self.cfg.rewards, "termination_world_keypoint_thresholds", ())
         root_pos = self.root_states[:, :3] - self.env_origins
 
         if self.motion_loader is None or xy_threshold is None:
@@ -520,14 +523,37 @@ class F1DHStandEnv(X1DHStandEnv):
             if joint_grace_steps > 0:
                 ref_joint_cutoff &= self.episode_length_buf > joint_grace_steps
 
+        world_keypoint_cutoff = torch.zeros_like(self.reset_buf)
+        world_keypoint_error_max = torch.zeros(self.num_envs, device=self.device)
+        if (
+            self.motion_loader is not None
+            and world_keypoint_rules
+            and self.ref_body_pos_world_error.numel() > 0
+            and self.ref_body_pos_names
+        ):
+            for label, tokens, threshold in world_keypoint_rules:
+                indices = self._body_pos_indices_containing(tokens)
+                if indices.numel() == 0:
+                    continue
+                rule_error_max = torch.max(self.ref_body_pos_world_error[:, indices], dim=1).values
+                rule_cutoff = rule_error_max > threshold
+                safe_label = str(label).replace("-", "_")
+                setattr(self, f"termination_world_keypoint_{safe_label}_buf", rule_cutoff)
+                setattr(self, f"world_keypoint_{safe_label}_error_max", rule_error_max)
+                world_keypoint_cutoff |= rule_cutoff
+                world_keypoint_error_max = torch.maximum(world_keypoint_error_max, rule_error_max)
+
         self.termination_ref_joint_pos_buf = ref_joint_cutoff
         self.com_xy_position = com_xy
         self.support_rect_outside_distance = support_rect_distance
         self.termination_support_rect_buf = support_rect_cutoff
+        self.termination_world_keypoint_buf = world_keypoint_cutoff
+        self.world_keypoint_termination_error_max = world_keypoint_error_max
         self.reset_buf |= ref_root_xy_cutoff
         self.reset_buf |= ref_root_xyz_cutoff
         self.reset_buf |= ref_joint_cutoff
         self.reset_buf |= support_rect_cutoff
+        self.reset_buf |= world_keypoint_cutoff
 
     def _reward_ref_joint_pos(self):
         joint_pos = self.dof_pos.clone()

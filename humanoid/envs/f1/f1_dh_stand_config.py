@@ -117,6 +117,7 @@ class F1DHStandCfg(X1DHStandCfg):
             "head",
         )
         termination_min_base_height = None
+        termination_world_keypoint_thresholds = ()
         termination_max_ref_root_xy_distance = None
         termination_max_ref_root_xyz_distance = None
         termination_max_ref_joint_pos_error = None
@@ -171,6 +172,10 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
         termination_max_ref_joint_pos_error = None
         termination_ref_joint_grace_steps = 0
         termination_support_rect_margin = 0.10
+        termination_world_keypoint_thresholds = (
+            ("ankle", ("ankle",), 0.08),
+            ("head_neck", ("head", "neck"), 0.15),
+        )
 
         class scales(F1DHStandCfg.rewards.scales):
             # Motion imitation objectives.
