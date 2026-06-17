@@ -82,8 +82,10 @@ URDF model and retargeted motion directory layout, variant naming (perfect/physi
 Currently active model for F1 training:
 
 ```text
-resources/robots/f1_v1.5/urdf/F1_29DOF_perfect_mirrored.urdf
+resources/robots/f1_v1.5/urdf/F1_29DOF_physically_mirrored.urdf
 ```
+
+This matches `humanoid/envs/f1/f1_dh_stand_config.py` and the default F1 motion metadata. Treat `F1_29DOF_perfect_mirrored.urdf` as an alternate URDF variant unless the training config is explicitly changed.
 
 For the full URDF and retargeted motion directory layout, variant naming, and related code entry points, use:
 
@@ -119,6 +121,16 @@ For a fresh Gradmotion GUI desktop that has already cloned this repository, the 
 ```bash
 bash ops/gradmotion/start-codex-tunnel.sh
 ```
+
+When the goal is F1 29DOF retargeted motion imitation in the Gradmotion GUI desktop, prefer the motion-imitation task and focused viewer entry point:
+
+```bash
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_gui_10env_YYYYMMDD \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+This is preferred over `f1_dh_stand` for motion imitation because `f1_dh_motion_imitation` enables reference actions, root orientation/velocity reset, and nonzero motion root/velocity/orientation reward scales. Use `doc/gradmotion_codex_gui_minimal_repro.md` and `doc/gradmotion_reverse_ssh_gui_workflow.md` for the detailed checks.
 
 ## AGENTS.md Registration Policy
 

@@ -69,6 +69,16 @@ bash ops/gradmotion/start-codex-tunnel.sh --remote-port 2224
 bash ops/gradmotion/start-codex-tunnel.sh --no-bootstrap
 ```
 
+云桌面重启后，如果项目和 Python 环境还在，优先走这个最快恢复流程：
+
+```bash
+cd /root/limx_rl/f1_train
+git pull
+bash ops/gradmotion/start-codex-tunnel.sh --no-bootstrap
+```
+
+脚本提示 `root@121.40.166.191's password:` 时，在云桌面终端里输入 ECS root 密码。输入后终端停住是正常状态，表示反向隧道正在保持。不要关闭这个终端。
+
 如果想减少 smoke test 时间，可以把参数传给 bootstrap：
 
 ```bash
@@ -249,6 +259,100 @@ bash ops/gradmotion/gui-desktop-train.sh gui-hold-status
 ```bash
 bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
 ```
+
+本次已验证的 10 环境可视训练模板：
+
+```bash
+cd /root/limx_rl/f1_train
+NUM_ENVS=10 MAX_ITERATIONS=100000 RUN_NAME=f1_gui_10env_YYYYMMDD \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold
+```
+
+如果目标是基于 F1 29DOF 重定向数据做动作模仿训练，优先选择 motion imitation 入口，而不是普通 `f1_dh_stand`：
+
+```bash
+cd /root/limx_rl/f1_train
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_gui_10env_YYYYMMDD \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+`gui-hold-focused` 会在环境创建后读取 `env.env_origins[VIEWER_FOCUS_ENV]`，再把 viewer 相机对准该环境。默认聚焦第一个机器人：
+
+```text
+VIEWER_FOCUS_ENV=0
+VIEWER_REL_POS=1.3,-1.2,1.1
+VIEWER_REL_LOOKAT=0,0,0.75
+```
+
+如果机器人仍然太小，可以继续拉近：
+
+```bash
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_gui_close_YYYYMMDD \
+  VIEWER_REL_POS=0.9,-0.8,0.9 VIEWER_REL_LOOKAT=0,0,0.7 \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+启动日志会明确打印以下信息，用来判断是否真的跑在 29DOF 重定向模仿入口上：
+
+```text
+task: f1_dh_motion_imitation
+asset: {LEGGED_GYM_ROOT_DIR}/resources/robots/f1_v1.5/urdf/F1_29DOF_physically_mirrored.urdf
+num_actions: 29
+motion_reference.enabled: True
+motion_reference.file: resources/motions/f1/v1.5/processed/...groundfit_minima_safe.npz
+env.use_ref_actions: True
+reward_scale.motion_root_height / orientation / lin_vel / ang_vel: non-empty
+```
+
+用于摔倒和偏离重定向轨迹的可视化诊断参数：
+
+```bash
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_debug_YYYYMMDD \
+  TERRAIN_MESH_TYPE=plane \
+  TERMINATION_MIN_BASE_HEIGHT=0.40 \
+  TERMINATION_MAX_REF_ROOT_XY_DISTANCE=0.5 \
+  TERMINATION_MAX_REF_JOINT_POS_ERROR=0.3 \
+  TERMINATION_SUPPORT_RECT_MARGIN=0.10 \
+  JOINT_DIAG_INTERVAL=50 JOINT_DIAG_TOPK=12 TERMINATION_DIAG_INTERVAL=50 \
+  VIEWER_REL_POS=1.0,-0.85,0.85 VIEWER_REL_LOOKAT=0,0,0.65 \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+其中 `TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 比较的是 reset 时刻对齐后的 motion root XY 偏离量，不是 NPZ 里的绝对 root XY 坐标。不要直接用未对齐的 `ref_root_pos[:, :2]` 和仿真世界坐标比较，否则 motion 文件自带的全局位移会导致环境一开始就被判定失败。
+
+`TERMINATION_MAX_REF_JOINT_POS_ERROR` 会在任一关节位置相对重定向参考偏离过大时提前 reset；`TERMINATION_SUPPORT_RECT_MARGIN` 会在质量加权 CoM 的 XY 越出双脚当前位置构成的轴对齐矩形时提前 reset，单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
+
+使用自定义 `RUN_NAME` 后，查看状态和关闭时也要带同一个 `RUN_NAME`：
+
+```bash
+RUN_NAME=f1_gui_10env_YYYYMMDD bash ops/gradmotion/gui-desktop-train.sh gui-hold-status
+RUN_NAME=f1_gui_10env_YYYYMMDD bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
+```
+
+后台 viewer 日志固定写入：
+
+```text
+/tmp/codex_isaac_viewer_hold.log
+```
+
+训练产物仍写入：
+
+```text
+logs/f1_dh_stand/exported_data/<timestamp><RUN_NAME>/
+```
+
+当前默认 viewer 相机来自：
+
+```text
+humanoid/envs/base/legged_robot_config.py
+viewer.pos = [10, 0, 6]
+viewer.lookat = [11., 5, 3.]
+```
+
+这个视角适合先看 10 个环境的整体场景；如果想看清单个机器人，可以在 Isaac Gym viewer 里拖动/缩放，或后续调整 `viewer.pos/lookat` 后重启 viewer。
 
 如果是新机器完整部署，优先运行：
 

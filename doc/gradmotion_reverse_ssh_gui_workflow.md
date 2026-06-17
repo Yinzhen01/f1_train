@@ -16,6 +16,16 @@ git pull
 bash ops/gradmotion/start-codex-tunnel.sh
 ```
 
+如果云桌面只是重启过，项目和环境仍然存在，通常只需要恢复反向隧道：
+
+```bash
+cd /root/limx_rl/f1_train
+git pull
+bash ops/gradmotion/start-codex-tunnel.sh --no-bootstrap
+```
+
+看到 `root@121.40.166.191's password:` 时，在云桌面终端输入 ECS root 密码。输入后终端保持不动是正常的，表示隧道正在运行。
+
 适用场景：
 
 - Gradmotion 云桌面本身没有可直接公网 SSH 的地址。
@@ -263,6 +273,119 @@ bash ops/gradmotion/gui-desktop-train.sh gui-hold-status
 ```bash
 bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
 ```
+
+本次实测的 10 环境 GUI 训练启动方式：
+
+```bash
+cd /root/limx_rl/f1_train
+NUM_ENVS=10 MAX_ITERATIONS=100000 RUN_NAME=f1_gui_10env_YYYYMMDD \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold
+```
+
+若训练目标是 F1 29DOF 重定向动作模仿，优先使用已注册的 motion imitation 任务：
+
+```bash
+cd /root/limx_rl/f1_train
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_gui_10env_YYYYMMDD \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+原因：
+
+```text
+f1_dh_stand:
+  会加载 F1 29DOF motion_reference 文件
+  use_ref_actions=False
+  motion root/velocity/orientation imitation reward 默认没有打开
+
+f1_dh_motion_imitation:
+  使用同一个 F1 29DOF 重定向 NPZ
+  use_ref_actions=True
+  reset_root_orientation=True
+  reset_root_velocity=True
+  motion_dof_vel / motion_root_height / motion_root_orientation / motion_root_lin_vel / motion_root_ang_vel 有非零权重
+```
+
+`gui-hold-focused` 用于固定复现“看清第一个机器人”的视角。它会在环境创建后读取真实的 `env.env_origins[VIEWER_FOCUS_ENV]`，避免 rough terrain 上第一个环境不在世界原点导致相机看错地方。默认：
+
+```text
+VIEWER_FOCUS_ENV=0
+VIEWER_REL_POS=1.3,-1.2,1.1
+VIEWER_REL_LOOKAT=0,0,0.75
+```
+
+更近观察单个机器人时可用：
+
+```bash
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_gui_close_YYYYMMDD \
+  VIEWER_REL_POS=0.9,-0.8,0.9 VIEWER_REL_LOOKAT=0,0,0.7 \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+启动日志应包含：
+
+```text
+task: f1_dh_motion_imitation
+asset: {LEGGED_GYM_ROOT_DIR}/resources/robots/f1_v1.5/urdf/F1_29DOF_physically_mirrored.urdf
+num_actions: 29
+motion_reference.enabled: True
+motion_reference.file: resources/motions/f1/v1.5/processed/...groundfit_minima_safe.npz
+env.use_ref_actions: True
+reward_scale.motion_root_height / orientation / lin_vel / ang_vel: non-empty
+viewer.focus_env / viewer.env_origin / viewer.pos / viewer.lookat
+```
+
+调试早期摔倒、打滑和偏离重定向轨迹时，建议先使用 plane、10 环境和较近 viewer，并打开关节/终止诊断：
+
+```bash
+TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_motion_imitation_debug_YYYYMMDD \
+  TERRAIN_MESH_TYPE=plane \
+  TERMINATION_MIN_BASE_HEIGHT=0.40 \
+  TERMINATION_MAX_REF_ROOT_XY_DISTANCE=0.5 \
+  TERMINATION_MAX_REF_JOINT_POS_ERROR=0.3 \
+  TERMINATION_SUPPORT_RECT_MARGIN=0.10 \
+  JOINT_DIAG_INTERVAL=50 JOINT_DIAG_TOPK=12 TERMINATION_DIAG_INTERVAL=50 \
+  VIEWER_REL_POS=1.0,-0.85,0.85 VIEWER_REL_LOOKAT=0,0,0.65 \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+`TERMINATION_MIN_BASE_HEIGHT` 用于判定 base/root 高度过低，`TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 用于判定机器人相对 reset 对齐后的重定向 root XY 轨迹偏离过远，`TERMINATION_MAX_REF_JOINT_POS_ERROR` 用于判定任一关节位置相对重定向参考偏离过大，`TERMINATION_SUPPORT_RECT_MARGIN` 用于判定质量加权 CoM 的 XY 是否越出双脚当前位置构成的轴对齐矩形。后者的单位是米，例如 `0.10` 表示允许越出双脚矩形 10cm。
+
+`TERMINATION_MAX_REF_ROOT_XY_DISTANCE` 必须比较对齐后的参考轨迹；不能直接用 motion NPZ 的绝对 root XY 坐标，否则 motion 文件自带的全局位置偏移会造成刚 reset 就触发失败。
+
+该方式会让 Isaac Gym viewer 脱离当前 SSH 命令，在云桌面上持续显示。即使 Codex 侧 SSH 命令结束或超时，viewer 也不会因此被带掉。
+
+如果使用了自定义 `RUN_NAME`，状态检查和关闭命令也要带相同的 `RUN_NAME`：
+
+```bash
+RUN_NAME=f1_gui_10env_YYYYMMDD bash ops/gradmotion/gui-desktop-train.sh gui-hold-status
+RUN_NAME=f1_gui_10env_YYYYMMDD bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
+```
+
+运行日志：
+
+```text
+/tmp/codex_isaac_viewer_hold.log
+```
+
+训练输出：
+
+```text
+logs/f1_dh_stand/exported_data/<timestamp><RUN_NAME>/
+```
+
+当前默认 viewer 相机配置：
+
+```text
+humanoid/envs/base/legged_robot_config.py
+viewer.pos = [10, 0, 6]
+viewer.lookat = [11., 5, 3.]
+```
+
+该视角可先用于观察 10 个环境的整体场景。若用户反馈太远、太近、只想看单个机器人，优先在 viewer 内手动拖动/缩放；需要固定复现时，再调整 `viewer.pos/lookat` 并重启 viewer。
 
 如果自动探测失败，手动带上 GUI 环境：
 
