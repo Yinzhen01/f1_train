@@ -1,9 +1,13 @@
 # Copyright (c) 2024, AgiBot Inc. All rights reserved.
 
+import math
+import xml.etree.ElementTree as ET
+
 import torch
 from isaacgym import gymtorch
 from isaacgym.torch_utils import quat_rotate, quat_rotate_inverse
 
+from humanoid import LEGGED_GYM_ROOT_DIR
 from humanoid.envs.base.legged_robot import get_euler_xyz_tensor
 from humanoid.envs.x1.x1_dh_stand_env import X1DHStandEnv
 from humanoid.utils.motion_loader import MotionLoader
@@ -29,6 +33,50 @@ def _quat_mul(a, b):
     )
 
 
+def _quat_rotate_py(quat, vec):
+    x, y, z, w = quat
+    vx, vy, vz = vec
+    tx = 2.0 * (y * vz - z * vy)
+    ty = 2.0 * (z * vx - x * vz)
+    tz = 2.0 * (x * vy - y * vx)
+    return (
+        vx + w * tx + y * tz - z * ty,
+        vy + w * ty + z * tx - x * tz,
+        vz + w * tz + x * ty - y * tx,
+    )
+
+
+def _quat_mul_py(a, b):
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
+
+
+def _quat_from_rpy(rpy):
+    roll, pitch, yaw = rpy
+    cr, sr = math.cos(roll * 0.5), math.sin(roll * 0.5)
+    cp, sp = math.cos(pitch * 0.5), math.sin(pitch * 0.5)
+    cy, sy = math.cos(yaw * 0.5), math.sin(yaw * 0.5)
+    return (
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    )
+
+
+def _compose_transform(pos_a, quat_a, pos_b, quat_b):
+    rotated = _quat_rotate_py(quat_a, pos_b)
+    pos = tuple(pos_a[i] + rotated[i] for i in range(3))
+    quat = _quat_mul_py(quat_a, quat_b)
+    return pos, quat
+
+
 class F1DHStandEnv(X1DHStandEnv):
     """F1 29-DOF variant of the X1 walking environment."""
 
@@ -48,6 +96,26 @@ class F1DHStandEnv(X1DHStandEnv):
         self.ref_root_lin_vel = torch.zeros((self.num_envs, 3), device=self.device)
         self.ref_root_ang_vel = torch.zeros((self.num_envs, 3), device=self.device)
         self.ref_foot_contacts = None
+        self.ref_body_pos = None
+        self.body_pos_world = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.aligned_ref_body_pos_world = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.body_pos_local = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.ref_body_pos_local = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.ref_body_pos_local_error_xyz = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.ref_body_pos_local_error = torch.zeros((self.num_envs, 0), device=self.device)
+        self.ref_body_pos_world_error_xyz = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.ref_body_pos_world_error = torch.zeros((self.num_envs, 0), device=self.device)
+        self.ref_body_pos_error_xyz = torch.zeros((self.num_envs, 0, 3), device=self.device)
+        self.ref_body_pos_error = torch.zeros((self.num_envs, 0), device=self.device)
+        self.ref_body_pos_error_mean = torch.zeros(self.num_envs, device=self.device)
+        self.ref_body_pos_error_max = torch.zeros(self.num_envs, device=self.device)
+        self.ref_body_pos_names = []
+        self.ref_body_pos_body_indices = torch.zeros(0, dtype=torch.long, device=self.device)
+        self.ref_body_pos_motion_indices = torch.zeros(0, dtype=torch.long, device=self.device)
+        self.ref_virtual_body_pos_names = []
+        self.ref_virtual_body_pos_parent_indices = torch.zeros(0, dtype=torch.long, device=self.device)
+        self.ref_virtual_body_pos_motion_indices = torch.zeros(0, dtype=torch.long, device=self.device)
+        self.ref_virtual_body_pos_offsets = torch.zeros((0, 3), device=self.device)
 
         motion_cfg = getattr(self.cfg, "motion_reference", None)
         if motion_cfg is None or not motion_cfg.enabled:
@@ -60,6 +128,99 @@ class F1DHStandEnv(X1DHStandEnv):
         )
         if motion_cfg.randomize_start_phase:
             self.motion_time_offsets = torch.rand(self.num_envs, device=self.device) * self.motion_loader.duration
+        self._init_ref_body_pos_indices()
+
+    def _init_ref_body_pos_indices(self):
+        if self.motion_loader is None or self.motion_loader.body_names is None:
+            return
+        body_names = getattr(self, "body_names", [])
+        body_name_to_idx = {name: idx for idx, name in enumerate(body_names)}
+        motion_indices = []
+        body_indices = []
+        names = []
+        virtual_motion_indices = []
+        virtual_parent_indices = []
+        virtual_offsets = []
+        virtual_names = []
+        fixed_body_offsets = self._load_fixed_body_offsets(body_name_to_idx)
+        for motion_idx, name in enumerate(self.motion_loader.body_names):
+            if name not in body_name_to_idx:
+                fixed_offset = fixed_body_offsets.get(name)
+                if fixed_offset is not None:
+                    parent_name, local_pos = fixed_offset
+                    virtual_motion_indices.append(motion_idx)
+                    virtual_parent_indices.append(body_name_to_idx[parent_name])
+                    virtual_offsets.append(local_pos)
+                    virtual_names.append(name)
+                continue
+            motion_indices.append(motion_idx)
+            body_indices.append(body_name_to_idx[name])
+            names.append(name)
+        if not names and not virtual_names:
+            return
+        self.ref_body_pos_names = names + virtual_names
+        if motion_indices:
+            self.ref_body_pos_motion_indices = torch.tensor(motion_indices, dtype=torch.long, device=self.device)
+            self.ref_body_pos_body_indices = torch.tensor(body_indices, dtype=torch.long, device=self.device)
+        if virtual_motion_indices:
+            self.ref_virtual_body_pos_names = virtual_names
+            self.ref_virtual_body_pos_motion_indices = torch.tensor(
+                virtual_motion_indices, dtype=torch.long, device=self.device
+            )
+            self.ref_virtual_body_pos_parent_indices = torch.tensor(
+                virtual_parent_indices, dtype=torch.long, device=self.device
+            )
+            self.ref_virtual_body_pos_offsets = torch.tensor(
+                virtual_offsets, dtype=torch.float32, device=self.device
+            )
+        body_pos_shape = (self.num_envs, len(self.ref_body_pos_names))
+        self.ref_body_pos_local_error = torch.zeros(body_pos_shape, device=self.device)
+        self.ref_body_pos_world_error = torch.zeros(body_pos_shape, device=self.device)
+        self.ref_body_pos_error = self.ref_body_pos_local_error
+
+    def _load_fixed_body_offsets(self, body_name_to_idx):
+        asset_file = self.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
+        root = ET.parse(asset_file).getroot()
+        fixed_children = {}
+        for joint in root.findall("joint"):
+            if joint.attrib.get("type") != "fixed":
+                continue
+            parent = joint.find("parent")
+            child = joint.find("child")
+            if parent is None or child is None:
+                continue
+            origin = joint.find("origin")
+            xyz = (0.0, 0.0, 0.0)
+            rpy = (0.0, 0.0, 0.0)
+            if origin is not None:
+                if "xyz" in origin.attrib:
+                    xyz = tuple(float(value) for value in origin.attrib["xyz"].split())
+                if "rpy" in origin.attrib:
+                    rpy = tuple(float(value) for value in origin.attrib["rpy"].split())
+            fixed_children[child.attrib["link"]] = (
+                parent.attrib["link"],
+                xyz,
+                _quat_from_rpy(rpy),
+            )
+
+        offsets = {}
+        for child_name in fixed_children:
+            pos = (0.0, 0.0, 0.0)
+            quat = (0.0, 0.0, 0.0, 1.0)
+            current = child_name
+            visited = set()
+            chain = []
+            while current in fixed_children and current not in visited:
+                visited.add(current)
+                parent_name, joint_pos, joint_quat = fixed_children[current]
+                chain.append((parent_name, joint_pos, joint_quat))
+                if parent_name in body_name_to_idx:
+                    for _, chain_pos, chain_quat in reversed(chain):
+                        pos, quat = _compose_transform(pos, quat, chain_pos, chain_quat)
+                    offsets[child_name] = (parent_name, pos)
+                    break
+                current = parent_name
+        return offsets
 
     def _reset_dofs(self, env_ids):
         if self.motion_loader is None or not self.cfg.motion_reference.reset_dofs_to_motion:
@@ -174,6 +335,7 @@ class F1DHStandEnv(X1DHStandEnv):
             self.ref_dof_pos = samples["dof_pos"]
             self.ref_dof_vel = samples["dof_vel"]
             self.ref_foot_contacts = samples.get("foot_contacts")
+            self._update_ref_body_pos_diagnostics(samples)
 
             if motion_cfg.stand_uses_default_pose:
                 stand_command = (
@@ -218,6 +380,82 @@ class F1DHStandEnv(X1DHStandEnv):
             action_scale = torch.tensor(action_scale, device=self.device)
         self.ref_action = self.ref_dof_pos / torch.clamp(action_scale, min=1e-6)
         self.ref_dof_pos += self.default_dof_pos
+
+    def _update_ref_body_pos_diagnostics(self, samples):
+        if (
+            "body_pos" not in samples
+            or not self.ref_body_pos_names
+        ):
+            self.ref_body_pos = None
+            self.body_pos_world = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.aligned_ref_body_pos_world = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.body_pos_local = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.ref_body_pos_local = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.ref_body_pos_local_error_xyz = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.ref_body_pos_local_error = torch.zeros((self.num_envs, 0), device=self.device)
+            self.ref_body_pos_world_error_xyz = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.ref_body_pos_world_error = torch.zeros((self.num_envs, 0), device=self.device)
+            self.ref_body_pos_error_xyz = torch.zeros((self.num_envs, 0, 3), device=self.device)
+            self.ref_body_pos_error = torch.zeros((self.num_envs, 0), device=self.device)
+            self.ref_body_pos_error_mean.zero_()
+            self.ref_body_pos_error_max.zero_()
+            return
+
+        ref_parts = []
+        body_parts = []
+        if self.ref_body_pos_motion_indices.numel() > 0:
+            ref_parts.append(samples["body_pos"][:, self.ref_body_pos_motion_indices])
+            body_parts.append(
+                self.rigid_state[:, self.ref_body_pos_body_indices, :3]
+                - self.env_origins[:, None, :]
+            )
+        if self.ref_virtual_body_pos_motion_indices.numel() > 0:
+            ref_parts.append(samples["body_pos"][:, self.ref_virtual_body_pos_motion_indices])
+            parent_pos = (
+                self.rigid_state[:, self.ref_virtual_body_pos_parent_indices, :3]
+                - self.env_origins[:, None, :]
+            )
+            parent_quat = self.rigid_state[:, self.ref_virtual_body_pos_parent_indices, 3:7]
+            virtual_offsets = self.ref_virtual_body_pos_offsets.expand(self.num_envs, -1, -1)
+            virtual_pos = parent_pos + quat_rotate(
+                parent_quat.reshape(-1, 4),
+                virtual_offsets.reshape(-1, 3),
+            ).view(self.num_envs, -1, 3)
+            body_parts.append(virtual_pos)
+        ref_body_pos = torch.cat(ref_parts, dim=1)
+        body_pos = torch.cat(body_parts, dim=1)
+        root_pos = self.root_states[:, :3] - self.env_origins
+        root_quat = self.root_states[:, 3:7]
+
+        ref_root_pos = self.ref_root_pos
+        ref_root_quat = self.ref_root_quat
+        body_local = quat_rotate_inverse(
+            root_quat[:, None, :].expand(-1, body_pos.shape[1], -1).reshape(-1, 4),
+            (body_pos - root_pos[:, None, :]).reshape(-1, 3),
+        ).view(self.num_envs, body_pos.shape[1], 3)
+        ref_body_local = quat_rotate_inverse(
+            ref_root_quat[:, None, :].expand(-1, ref_body_pos.shape[1], -1).reshape(-1, 4),
+            (ref_body_pos - ref_root_pos[:, None, :]).reshape(-1, 3),
+        ).view(self.num_envs, ref_body_pos.shape[1], 3)
+
+        self.ref_body_pos = ref_body_pos
+        self.body_pos_world = body_pos + self.env_origins[:, None, :]
+        self.aligned_ref_body_pos_world = (
+            ref_body_pos
+            + self.ref_root_pos_offset[:, None, :]
+            + self.env_origins[:, None, :]
+        )
+        self.body_pos_local = body_local
+        self.ref_body_pos_local = ref_body_local
+        self.ref_body_pos_local_error_xyz = body_local - ref_body_local
+        self.ref_body_pos_local_error = torch.norm(self.ref_body_pos_local_error_xyz, dim=-1)
+        self.ref_body_pos_world_error_xyz = self.body_pos_world - self.aligned_ref_body_pos_world
+        self.ref_body_pos_world_error = torch.norm(self.ref_body_pos_world_error_xyz, dim=-1)
+        # Backward-compatible diagnostic aliases. The keypoint reward below uses world error.
+        self.ref_body_pos_error_xyz = self.ref_body_pos_local_error_xyz
+        self.ref_body_pos_error = self.ref_body_pos_local_error
+        self.ref_body_pos_error_mean = torch.mean(self.ref_body_pos_world_error, dim=1)
+        self.ref_body_pos_error_max = torch.max(self.ref_body_pos_world_error, dim=1).values
 
     def check_termination(self):
         if self.motion_loader is not None:
@@ -314,6 +552,13 @@ class F1DHStandEnv(X1DHStandEnv):
         ]
         return torch.tensor(indices, dtype=torch.long, device=self.device)
 
+    def _body_pos_indices_containing(self, tokens):
+        indices = [
+            i for i, name in enumerate(self.ref_body_pos_names)
+            if any(token in name for token in tokens)
+        ]
+        return torch.tensor(indices, dtype=torch.long, device=self.device)
+
     def _reward_ref_joint_subset_pos(self, tokens, sigma=2.0):
         indices = self._dof_indices_containing(tokens)
         if indices.numel() == 0:
@@ -321,6 +566,21 @@ class F1DHStandEnv(X1DHStandEnv):
         diff = self.dof_pos[:, indices] - self.ref_dof_pos[:, indices]
         error = torch.norm(diff, dim=1)
         return torch.exp(-sigma * error) - 0.2 * error.clamp(0, 0.5)
+
+    def _reward_ref_keypoint_pos(self):
+        if self.ref_body_pos_world_error.numel() == 0 or not self.ref_body_pos_names:
+            return torch.zeros(self.num_envs, device=self.device)
+        tokens = getattr(self.cfg.rewards, "motion_keypoint_pos_tokens", ())
+        indices = self._body_pos_indices_containing(tokens) if tokens else None
+        if indices is not None:
+            if indices.numel() == 0:
+                return torch.zeros(self.num_envs, device=self.device)
+            errors = self.ref_body_pos_world_error[:, indices]
+        else:
+            errors = self.ref_body_pos_world_error
+        error = torch.mean(errors, dim=1)
+        sigma = getattr(self.cfg.rewards, "motion_keypoint_pos_sigma", 20.0)
+        return torch.exp(-sigma * error)
 
     def _reward_ref_lower_body_pos(self):
         return self._reward_ref_joint_subset_pos(("hip", "knee", "ankle"))

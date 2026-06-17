@@ -19,6 +19,7 @@ MOTION_TENSOR_KEYS = (
 
 OPTIONAL_MOTION_TENSOR_KEYS = (
     "foot_contacts",
+    "body_pos",
 )
 
 
@@ -47,6 +48,11 @@ class MotionLoader:
 
         data = np.load(self.motion_file, allow_pickle=False)
         self.joint_names = [str(name) for name in data["joint_names"].tolist()]
+        self.body_names = (
+            [str(name) for name in data["body_names"].tolist()]
+            if "body_names" in data.files
+            else None
+        )
         if expected_joint_names is not None:
             expected = list(expected_joint_names)
             if self.joint_names != expected:
@@ -109,6 +115,13 @@ class MotionLoader:
             raise ValueError("dof_vel shape must match dof_pos")
         if "foot_contacts" in self.tensors and self.tensors["foot_contacts"].shape[1] != 2:
             raise ValueError("foot_contacts must have shape [T, 2]")
+        if "body_pos" in self.tensors:
+            if self.tensors["body_pos"].ndim != 3 or self.tensors["body_pos"].shape[2] != 3:
+                raise ValueError("body_pos must have shape [T, num_bodies, 3]")
+            if self.body_names is None:
+                raise ValueError("body_pos requires body_names")
+            if self.tensors["body_pos"].shape[1] != len(self.body_names):
+                raise ValueError("body_pos width must match body_names")
 
     def sample_by_phase(self, phase: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Sample reference state at normalized phase in [0, 1)."""
@@ -122,14 +135,15 @@ class MotionLoader:
         frame_pos = flat_times / self.dt
         idx0 = torch.floor(frame_pos).long().clamp(0, self.frame_count - 1)
         idx1 = (idx0 + 1) % self.frame_count
-        alpha = (frame_pos - idx0.float()).clamp(0.0, 1.0).unsqueeze(-1)
+        alpha = (frame_pos - idx0.float()).clamp(0.0, 1.0)
 
         samples = {}
         for key, values in self.tensors.items():
-            interp = values[idx0] * (1.0 - alpha) + values[idx1] * alpha
+            alpha_view = alpha.reshape(-1, *([1] * (values.ndim - 1)))
+            interp = values[idx0] * (1.0 - alpha_view) + values[idx1] * alpha_view
             if key == "root_quat":
                 interp = torch.nn.functional.normalize(interp, dim=-1)
-            samples[key] = interp.reshape(*times.shape, values.shape[-1])
+            samples[key] = interp.reshape(*times.shape, *values.shape[1:])
         samples["phase"] = torch.remainder(flat_times / self.duration, 1.0).reshape(times.shape)
         samples["frame_index"] = idx0.reshape(times.shape)
         return samples

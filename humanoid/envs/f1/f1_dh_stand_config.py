@@ -103,6 +103,19 @@ class F1DHStandCfg(X1DHStandCfg):
         motion_root_orientation_sigma = 8.0
         motion_root_lin_vel_sigma = 4.0
         motion_root_ang_vel_sigma = 3.0
+        motion_keypoint_pos_sigma = 20.0
+        motion_keypoint_pos_tokens = (
+            "hip",
+            "knee",
+            "ankle",
+            "toe",
+            "lumbar",
+            "shoulder",
+            "elbow",
+            "wrist",
+            "neck",
+            "head",
+        )
         termination_min_base_height = None
         termination_max_ref_root_xy_distance = None
         termination_max_ref_root_xyz_distance = None
@@ -161,12 +174,12 @@ class F1DHMotionImitationCfg(F1DHStandCfg):
 
         class scales(F1DHStandCfg.rewards.scales):
             # Motion imitation objectives.
-            # These compare DOF angles, not Cartesian body/keypoint positions.
-            # Keep them as weak auxiliary priors; prefer spatial imitation rewards.
+            # Keep joint-angle terms as weak auxiliary priors; prefer spatial imitation rewards.
             ref_joint_pos = 0.1
             ref_lower_body_pos = 1.0
             ref_lumbar_pos = 0.25
             ref_upper_body_pos = 0.1
+            ref_keypoint_pos = 2.0
             motion_dof_vel = 1.0
             motion_lower_body_vel = 1.5
             motion_root_height = 2.0

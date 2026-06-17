@@ -9,6 +9,7 @@ known, which is necessary on terrain where env 0 is not near world origin.
 
 import os
 
+from isaacgym import gymapi, gymutil
 from humanoid.envs import *  # noqa: F401,F403
 from humanoid.utils import get_args, task_registry
 
@@ -42,6 +43,11 @@ def _parse_optional_float(raw):
     return float(raw)
 
 
+def _parse_name_list(name):
+    raw = os.environ.get(name, "")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def _reward_scale(cfg, name):
     return getattr(cfg.rewards.scales, name, None)
 
@@ -53,8 +59,25 @@ def _as_vector(value, length):
 
 
 def _joint_group(name):
-    for group in ("hip", "knee", "ankle", "lumbar", "shoulder", "elbow", "wrist"):
+    for group in (
+        "neck",
+        "head",
+        "base",
+        "waist",
+        "lumbar",
+        "shoulder",
+        "elbow",
+        "wrist",
+        "hip",
+        "knee",
+        "ankle",
+        "toe",
+        "arm",
+        "leg",
+    ):
         if f"_{group}_" in name:
+            return group
+        if name.startswith(f"{group}_"):
             return group
     return "other"
 
@@ -157,6 +180,16 @@ def _print_training_context(args, env_cfg):
         getattr(env_cfg.rewards, "termination_support_rect_margin", None),
         flush=True,
     )
+    print(
+        "rewards.motion_keypoint_pos_sigma:",
+        getattr(env_cfg.rewards, "motion_keypoint_pos_sigma", None),
+        flush=True,
+    )
+    print(
+        "rewards.motion_keypoint_pos_tokens:",
+        getattr(env_cfg.rewards, "motion_keypoint_pos_tokens", None),
+        flush=True,
+    )
     print("num_actions:", env_cfg.env.num_actions, flush=True)
     if motion_cfg is not None:
         print("motion_reference.enabled:", motion_cfg.enabled, flush=True)
@@ -176,6 +209,7 @@ def _print_training_context(args, env_cfg):
         "ref_lower_body_pos",
         "ref_lumbar_pos",
         "ref_upper_body_pos",
+        "ref_keypoint_pos",
         "motion_dof_vel",
         "motion_lower_body_vel",
         "motion_root_height",
@@ -299,6 +333,430 @@ def _print_joint_error_diagnostics(env, topk, step, focus_env, print_all):
             )
 
 
+def _print_body_pos_error_diagnostics(env, topk, step, focus_env, print_all):
+    names = getattr(env, "ref_body_pos_names", [])
+    errors = getattr(env, "ref_body_pos_world_error", None)
+    if errors is None:
+        errors = getattr(env, "ref_body_pos_error", None)
+    if errors is None or errors.numel() == 0 or not names:
+        print(f"body_pos_diag_step: {step}", flush=True)
+        print(
+            "body_pos_diag_unavailable: motion_body_pos=false matched_bodies=0",
+            flush=True,
+        )
+        return
+
+    with torch.no_grad():
+        mean_err = errors.mean(dim=0)
+        focus_err = errors[focus_env]
+        top_count = min(topk, len(names))
+        _, top_indices = torch.topk(mean_err, k=top_count)
+        print(f"body_pos_diag_step: {step}", flush=True)
+        print(
+            "body_pos_diag_columns: idx name group mean_world_pos_err_m focus_world_pos_err_m",
+            flush=True,
+        )
+        for idx_t in top_indices:
+            idx = int(idx_t)
+            name = names[idx]
+            print(
+                "body_pos_diag_top:"
+                f" {idx} {name} {_joint_group(name)}"
+                f" {float(mean_err[idx]):.6f}"
+                f" {float(focus_err[idx]):.6f}",
+                flush=True,
+            )
+
+        if print_all:
+            print(
+                "body_pos_diag_all_columns: idx name group mean_world_pos_err_m focus_world_pos_err_m",
+                flush=True,
+            )
+            for idx, name in enumerate(names):
+                print(
+                    "body_pos_diag_all:"
+                    f" {idx} {name} {_joint_group(name)}"
+                    f" {float(mean_err[idx]):.6f}"
+                    f" {float(focus_err[idx]):.6f}",
+                    flush=True,
+                )
+
+        groups = {}
+        for idx, name in enumerate(names):
+            groups.setdefault(_joint_group(name), []).append(idx)
+        for group, indices in sorted(groups.items()):
+            index_tensor = torch.tensor(indices, device=env.device)
+            print(
+                "body_pos_diag_group:"
+                f" {group}"
+                f" {float(mean_err[index_tensor].mean()):.6f}"
+                f" {float(focus_err[index_tensor].mean()):.6f}",
+                flush=True,
+            )
+
+
+def _print_body_pos_failure_diagnostics(env, topk, step, print_all, detail_names):
+    names = getattr(env, "ref_body_pos_names", [])
+    errors = getattr(env, "ref_body_pos_world_error", None)
+    if errors is None:
+        errors = getattr(env, "ref_body_pos_error", None)
+    if errors is None or errors.numel() == 0 or not names:
+        print(f"body_pos_fail_diag_step: {step}", flush=True)
+        print(
+            "body_pos_fail_diag_unavailable: motion_body_pos=false matched_bodies=0",
+            flush=True,
+        )
+        return
+
+    failed_mask = env.reset_buf.bool()
+    failed_count = int(failed_mask.sum().item())
+    print(f"body_pos_fail_diag_step: {step}", flush=True)
+    if failed_count == 0:
+        print("body_pos_fail_diag: failed_env_count=0", flush=True)
+        return
+
+    with torch.no_grad():
+        failed_errors = errors[failed_mask]
+        failed_env_ids = torch.nonzero(failed_mask, as_tuple=False).flatten()
+        first_failed_env = int(failed_env_ids[0])
+        first_failed_err = failed_errors[0]
+        mean_err = failed_errors.mean(dim=0)
+        max_err = failed_errors.max(dim=0).values
+        top_count = min(topk, len(names))
+        _, top_indices = torch.topk(max_err, k=top_count)
+
+        print(
+            "body_pos_fail_diag_columns:"
+            " idx name group fail_mean_world_pos_err_m fail_max_world_pos_err_m first_failed_env_world_pos_err_m",
+            flush=True,
+        )
+        print(
+            f"body_pos_fail_diag_summary: failed_env_count={failed_count}"
+            f" first_failed_env={first_failed_env}",
+            flush=True,
+        )
+        indices = range(len(names)) if print_all else [int(idx) for idx in top_indices]
+        for idx in indices:
+            name = names[idx]
+            print(
+                "body_pos_fail_diag:"
+                f" {idx} {name} {_joint_group(name)}"
+                f" {float(mean_err[idx]):.6f}"
+                f" {float(max_err[idx]):.6f}"
+                f" {float(first_failed_err[idx]):.6f}",
+                flush=True,
+            )
+
+        groups = {}
+        for idx, name in enumerate(names):
+            groups.setdefault(_joint_group(name), []).append(idx)
+        for group, indices in sorted(groups.items()):
+            index_tensor = torch.tensor(indices, device=env.device)
+            print(
+                "body_pos_fail_diag_group:"
+                f" {group}"
+                f" {float(mean_err[index_tensor].mean()):.6f}"
+                f" {float(max_err[index_tensor].max()):.6f}"
+                f" {float(first_failed_err[index_tensor].mean()):.6f}",
+                flush=True,
+            )
+
+        if not detail_names:
+            return
+
+        detail_indices = _resolve_body_pos_detail_indices(names, detail_names)
+        if not detail_indices:
+            print(
+                "body_pos_fail_detail_unavailable:"
+                f" requested={','.join(detail_names)}",
+                flush=True,
+            )
+            return
+
+        body_local = getattr(env, "body_pos_local", None)
+        ref_local = getattr(env, "ref_body_pos_local", None)
+        local_error_xyz = getattr(env, "ref_body_pos_local_error_xyz", None)
+        local_errors = getattr(env, "ref_body_pos_local_error", None)
+        if local_error_xyz is None:
+            local_error_xyz = getattr(env, "ref_body_pos_error_xyz", None)
+        if local_errors is None:
+            local_errors = getattr(env, "ref_body_pos_error", None)
+        body_world = getattr(env, "body_pos_world", None)
+        ref_world = getattr(env, "aligned_ref_body_pos_world", None)
+        world_error_xyz = getattr(env, "ref_body_pos_world_error_xyz", None)
+        world_errors = getattr(env, "ref_body_pos_world_error", None)
+        if body_local is None or ref_local is None or local_error_xyz is None or local_errors is None:
+            print("body_pos_fail_detail_unavailable: local_tensors=false", flush=True)
+            return
+
+        print(
+            "body_pos_fail_detail_columns:"
+            " idx name group first_failed_env motion_time_s"
+            " local_cur_x local_cur_y local_cur_z"
+            " local_ref_x local_ref_y local_ref_z"
+            " local_err_x local_err_y local_err_z local_err_norm_m"
+            " world_cur_x world_cur_y world_cur_z"
+            " world_ref_x world_ref_y world_ref_z world_err_norm_m"
+            " fail_mean_err_m fail_max_err_m max_err_env",
+            flush=True,
+        )
+        for idx in detail_indices:
+            name = names[idx]
+            key_errors = errors[failed_mask, idx]
+            max_local_idx = int(torch.argmax(key_errors).item())
+            max_env = int(failed_env_ids[max_local_idx])
+            cur = body_local[first_failed_env, idx]
+            ref = ref_local[first_failed_env, idx]
+            delta = local_error_xyz[first_failed_env, idx]
+            local_err = local_errors[first_failed_env, idx]
+            world_cur = None
+            world_ref = None
+            world_err = float("nan")
+            if body_world is not None and ref_world is not None and body_world.numel() > 0 and ref_world.numel() > 0:
+                world_cur = body_world[first_failed_env, idx]
+                world_ref = ref_world[first_failed_env, idx]
+                if world_errors is not None and world_errors.numel() > 0:
+                    world_err = float(world_errors[first_failed_env, idx].item())
+                elif world_error_xyz is not None and world_error_xyz.numel() > 0:
+                    world_err = float(torch.norm(world_error_xyz[first_failed_env, idx]).item())
+                else:
+                    world_err = float(torch.norm(world_cur - world_ref).item())
+            print(
+                "body_pos_fail_detail:"
+                f" {idx} {name} {_joint_group(name)}"
+                f" {first_failed_env}"
+                f" {_motion_time(env, first_failed_env):.6f}"
+                f" {float(cur[0]):.6f} {float(cur[1]):.6f} {float(cur[2]):.6f}"
+                f" {float(ref[0]):.6f} {float(ref[1]):.6f} {float(ref[2]):.6f}"
+                f" {float(delta[0]):.6f} {float(delta[1]):.6f} {float(delta[2]):.6f}"
+                f" {float(local_err):.6f}"
+                f" {float(world_cur[0]) if world_cur is not None else float('nan'):.6f}"
+                f" {float(world_cur[1]) if world_cur is not None else float('nan'):.6f}"
+                f" {float(world_cur[2]) if world_cur is not None else float('nan'):.6f}"
+                f" {float(world_ref[0]) if world_ref is not None else float('nan'):.6f}"
+                f" {float(world_ref[1]) if world_ref is not None else float('nan'):.6f}"
+                f" {float(world_ref[2]) if world_ref is not None else float('nan'):.6f}"
+                f" {world_err:.6f}"
+                f" {float(mean_err[idx]):.6f}"
+                f" {float(max_err[idx]):.6f}"
+                f" {max_env}",
+                flush=True,
+            )
+
+
+def _resolve_body_pos_detail_indices(names, requested_names):
+    indices = []
+    for requested in requested_names:
+        if requested in names:
+            indices.append(names.index(requested))
+            continue
+        matches = [idx for idx, name in enumerate(names) if requested in name]
+        indices.extend(matches)
+    return sorted(set(indices))
+
+
+def _motion_time(env, env_id):
+    phase = float(env.phase_length_buf[env_id].item()) * float(env.dt)
+    offsets = getattr(env, "motion_time_offsets", None)
+    if offsets is not None and offsets.numel() > env_id:
+        phase += float(offsets[env_id].item())
+    return phase
+
+
+def _print_body_pos_detail_diagnostics(env, step, focus_env, detail_names):
+    names = getattr(env, "ref_body_pos_names", [])
+    errors = getattr(env, "ref_body_pos_world_error", None)
+    if errors is None:
+        errors = getattr(env, "ref_body_pos_error", None)
+    body_local = getattr(env, "body_pos_local", None)
+    ref_local = getattr(env, "ref_body_pos_local", None)
+    local_error_xyz = getattr(env, "ref_body_pos_local_error_xyz", None)
+    local_errors = getattr(env, "ref_body_pos_local_error", None)
+    if local_error_xyz is None:
+        local_error_xyz = getattr(env, "ref_body_pos_error_xyz", None)
+    if local_errors is None:
+        local_errors = getattr(env, "ref_body_pos_error", None)
+    body_world = getattr(env, "body_pos_world", None)
+    ref_world = getattr(env, "aligned_ref_body_pos_world", None)
+    world_error_xyz = getattr(env, "ref_body_pos_world_error_xyz", None)
+    world_errors = getattr(env, "ref_body_pos_world_error", None)
+    if (
+        not detail_names
+        or not names
+        or errors is None
+        or errors.numel() == 0
+        or body_local is None
+        or ref_local is None
+        or local_error_xyz is None
+        or local_errors is None
+    ):
+        return
+
+    indices = _resolve_body_pos_detail_indices(names, detail_names)
+    if not indices:
+        print(
+            "body_pos_detail_unavailable:"
+            f" requested={','.join(detail_names)}",
+            flush=True,
+        )
+        return
+
+    env_ids = [max(0, min(focus_env, env.num_envs - 1))]
+    failed_ids = torch.nonzero(env.reset_buf.bool(), as_tuple=False).flatten()
+    if failed_ids.numel() > 0:
+        first_failed_env = int(failed_ids[0])
+        if first_failed_env not in env_ids:
+            env_ids.append(first_failed_env)
+
+    print(f"body_pos_detail_step: {step}", flush=True)
+    print(
+        "body_pos_detail_columns:"
+        " env_id motion_time_s idx name"
+        " local_cur_x local_cur_y local_cur_z"
+        " local_ref_x local_ref_y local_ref_z"
+        " local_err_x local_err_y local_err_z local_err_norm_m"
+        " world_cur_x world_cur_y world_cur_z"
+        " world_ref_x world_ref_y world_ref_z world_err_norm_m",
+        flush=True,
+    )
+    with torch.no_grad():
+        for env_id in env_ids:
+            for idx in indices:
+                cur = body_local[env_id, idx]
+                ref = ref_local[env_id, idx]
+                delta = local_error_xyz[env_id, idx]
+                local_err = local_errors[env_id, idx]
+                world_cur = None
+                world_ref = None
+                world_err = float("nan")
+                if body_world is not None and ref_world is not None and body_world.numel() > 0 and ref_world.numel() > 0:
+                    world_cur = body_world[env_id, idx]
+                    world_ref = ref_world[env_id, idx]
+                    if world_errors is not None and world_errors.numel() > 0:
+                        world_err = float(world_errors[env_id, idx].item())
+                    elif world_error_xyz is not None and world_error_xyz.numel() > 0:
+                        world_err = float(torch.norm(world_error_xyz[env_id, idx]).item())
+                    else:
+                        world_err = float(torch.norm(world_cur - world_ref).item())
+                print(
+                    "body_pos_detail:"
+                    f" {env_id}"
+                    f" {_motion_time(env, env_id):.6f}"
+                    f" {idx} {names[idx]}"
+                    f" {float(cur[0]):.6f} {float(cur[1]):.6f} {float(cur[2]):.6f}"
+                    f" {float(ref[0]):.6f} {float(ref[1]):.6f} {float(ref[2]):.6f}"
+                    f" {float(delta[0]):.6f} {float(delta[1]):.6f} {float(delta[2]):.6f}"
+                    f" {float(local_err):.6f}",
+                    f" {float(world_cur[0]) if world_cur is not None else float('nan'):.6f}"
+                    f" {float(world_cur[1]) if world_cur is not None else float('nan'):.6f}"
+                    f" {float(world_cur[2]) if world_cur is not None else float('nan'):.6f}"
+                    f" {float(world_ref[0]) if world_ref is not None else float('nan'):.6f}"
+                    f" {float(world_ref[1]) if world_ref is not None else float('nan'):.6f}"
+                    f" {float(world_ref[2]) if world_ref is not None else float('nan'):.6f}"
+                    f" {world_err:.6f}",
+                    flush=True,
+                )
+
+
+def _install_ref_keypoint_markers(env):
+    if env.headless or env.viewer is None:
+        return
+
+    marker_names = _parse_name_list("REF_MARKER_NAMES")
+    if not marker_names:
+        return
+
+    marker_env = int(os.environ.get("REF_MARKER_ENV", os.environ.get("VIEWER_FOCUS_ENV", "0")))
+    if marker_env < 0 or marker_env >= env.num_envs:
+        raise ValueError(f"REF_MARKER_ENV={marker_env} is outside num_envs={env.num_envs}")
+
+    radius = float(os.environ.get("REF_MARKER_RADIUS", "0.035"))
+    color = _parse_vec("REF_MARKER_COLOR", "1,0,0")
+    current_color = _parse_vec("CURRENT_MARKER_COLOR", "0,1,0")
+    ref_sphere_geom = gymutil.WireframeSphereGeometry(
+        radius,
+        8,
+        8,
+        None,
+        color=tuple(color),
+    )
+    current_sphere_geom = gymutil.WireframeSphereGeometry(
+        radius,
+        8,
+        8,
+        None,
+        color=tuple(current_color),
+    )
+    original_render = env.render
+    last_unavailable = {"step": -1}
+
+    print(
+        "ref_marker.enabled:"
+        f" env={marker_env}"
+        f" radius={radius}"
+        f" ref_color={','.join(str(v) for v in color)}"
+        f" current_color={','.join(str(v) for v in current_color)}"
+        f" names={','.join(marker_names)}",
+        flush=True,
+    )
+
+    def render_with_ref_markers(sync_frame_time=True):
+        names = getattr(env, "ref_body_pos_names", [])
+        ref_body_pos = getattr(env, "aligned_ref_body_pos_world", None)
+        body_pos = getattr(env, "body_pos_world", None)
+        if (
+            names
+            and ref_body_pos is not None
+            and body_pos is not None
+            and ref_body_pos.numel() > 0
+            and body_pos.numel() > 0
+        ):
+            indices = _resolve_body_pos_detail_indices(names, marker_names)
+            env.gym.clear_lines(env.viewer)
+            with torch.no_grad():
+                for idx in indices:
+                    ref_pos = ref_body_pos[marker_env, idx]
+                    current_pos = body_pos[marker_env, idx]
+                    ref_sphere_pose = gymapi.Transform(
+                        gymapi.Vec3(float(ref_pos[0]), float(ref_pos[1]), float(ref_pos[2])),
+                        r=None,
+                    )
+                    current_sphere_pose = gymapi.Transform(
+                        gymapi.Vec3(
+                            float(current_pos[0]),
+                            float(current_pos[1]),
+                            float(current_pos[2]),
+                        ),
+                        r=None,
+                    )
+                    gymutil.draw_lines(
+                        ref_sphere_geom,
+                        env.gym,
+                        env.viewer,
+                        env.envs[marker_env],
+                        ref_sphere_pose,
+                    )
+                    gymutil.draw_lines(
+                        current_sphere_geom,
+                        env.gym,
+                        env.viewer,
+                        env.envs[marker_env],
+                        current_sphere_pose,
+                    )
+        else:
+            step = int(getattr(env, "common_step_counter", 0))
+            if step != last_unavailable["step"]:
+                print(
+                    "ref_marker_unavailable:"
+                    " motion_body_pos=false_or_not_initialized",
+                    flush=True,
+                )
+                last_unavailable["step"] = step
+        return original_render(sync_frame_time=sync_frame_time)
+
+    env.render = render_with_ref_markers
+
+
 def _install_joint_diagnostics(env):
     interval = int(os.environ.get("JOINT_DIAG_INTERVAL", "0"))
     if interval <= 0:
@@ -338,6 +796,84 @@ def _install_joint_diagnostics(env):
         f"joint_diag.enabled: interval={interval} topk={topk} print_all={print_all}",
         flush=True,
     )
+
+
+def _install_body_pos_diagnostics(env):
+    interval = int(os.environ.get("BODY_POS_DIAG_INTERVAL", "0"))
+    if interval <= 0:
+        return
+
+    topk = int(os.environ.get("BODY_POS_DIAG_TOPK", "12"))
+    fail_interval = int(os.environ.get("BODY_POS_FAIL_DIAG_INTERVAL", str(interval)))
+    fail_topk = int(os.environ.get("BODY_POS_FAIL_DIAG_TOPK", str(topk)))
+    focus_env = int(os.environ.get("VIEWER_FOCUS_ENV", "0"))
+    print_all = _parse_bool("BODY_POS_DIAG_PRINT_ALL")
+    print_all = bool(print_all) if print_all is not None else False
+    fail_print_all = _parse_bool("BODY_POS_FAIL_DIAG_PRINT_ALL")
+    fail_print_all = bool(fail_print_all) if fail_print_all is not None else False
+    detail_names = _parse_name_list("BODY_POS_DETAIL_NAMES")
+    fail_detail_names = _parse_name_list("BODY_POS_FAIL_DETAIL_NAMES")
+    last_printed = {"step": -1}
+    last_fail_printed = {"step": -1}
+    original_check_termination = env.check_termination
+
+    def check_termination_with_body_pos_diag():
+        original_check_termination()
+        step = int(getattr(env, "common_step_counter", 0))
+        if step > 0 and step % interval == 0 and step != last_printed["step"]:
+            _print_body_pos_error_diagnostics(
+                env,
+                topk=topk,
+                step=step,
+                focus_env=focus_env,
+                print_all=print_all,
+            )
+            _print_body_pos_detail_diagnostics(
+                env,
+                step=step,
+                focus_env=focus_env,
+                detail_names=detail_names,
+            )
+            last_printed["step"] = step
+        if (
+            fail_interval > 0
+            and step > 0
+            and step % fail_interval == 0
+            and step != last_fail_printed["step"]
+        ):
+            _print_body_pos_failure_diagnostics(
+                env,
+                topk=fail_topk,
+                step=step,
+                print_all=fail_print_all,
+                detail_names=fail_detail_names,
+            )
+            last_fail_printed["step"] = step
+
+    env.check_termination = check_termination_with_body_pos_diag
+    print(
+        f"body_pos_diag.enabled: interval={interval} topk={topk} print_all={print_all}",
+        flush=True,
+    )
+    print(
+        "body_pos_fail_diag.enabled:"
+        f" interval={fail_interval}"
+        f" topk={fail_topk}"
+        f" print_all={fail_print_all}",
+        flush=True,
+    )
+    if detail_names:
+        print(
+            "body_pos_detail.enabled:"
+            f" names={','.join(detail_names)}",
+            flush=True,
+        )
+    if fail_detail_names:
+        print(
+            "body_pos_fail_detail.enabled:"
+            f" names={','.join(fail_detail_names)}",
+            flush=True,
+        )
 
 
 def _install_termination_diagnostics(env):
@@ -485,6 +1021,15 @@ def train(args):
     motion_cfg = getattr(env_cfg, "motion_reference", None)
     if motion_cfg is not None and motion_randomize_start_phase is not None:
         motion_cfg.randomize_start_phase = motion_randomize_start_phase
+    motion_reference_file = os.environ.get("MOTION_REFERENCE_FILE")
+    if motion_cfg is not None and motion_reference_file:
+        motion_cfg.file = motion_reference_file
+    ref_keypoint_pos_scale = os.environ.get("REF_KEYPOINT_POS_SCALE")
+    if ref_keypoint_pos_scale is not None:
+        env_cfg.rewards.scales.ref_keypoint_pos = float(ref_keypoint_pos_scale)
+    motion_keypoint_pos_sigma = os.environ.get("MOTION_KEYPOINT_POS_SIGMA")
+    if motion_keypoint_pos_sigma is not None:
+        env_cfg.rewards.motion_keypoint_pos_sigma = float(motion_keypoint_pos_sigma)
     policy_init_noise_std = os.environ.get("POLICY_INIT_NOISE_STD")
     if policy_init_noise_std:
         train_cfg.policy.init_noise_std = float(policy_init_noise_std)
@@ -548,7 +1093,9 @@ def train(args):
         env.set_camera(cam_pos, cam_lookat)
 
     _print_joint_reference_table(env, focus_env)
+    _install_ref_keypoint_markers(env)
     _install_joint_diagnostics(env)
+    _install_body_pos_diagnostics(env)
     _install_termination_diagnostics(env)
     _install_initial_settle_diagnostics(env)
 
