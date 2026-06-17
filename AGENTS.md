@@ -132,6 +132,14 @@ TASK=f1_dh_motion_imitation NUM_ENVS=10 MAX_ITERATIONS=100000 \
 
 This is preferred over `f1_dh_stand` for motion imitation because `f1_dh_motion_imitation` enables reference actions, root orientation/velocity reset, and nonzero motion root/velocity/orientation reward scales. Use `doc/gradmotion_codex_gui_minimal_repro.md` and `doc/gradmotion_reverse_ssh_gui_workflow.md` for detailed checks, including world-space keypoint reward, keypoint reset thresholds, and the current 3000-env Gradmotion training baseline.
 
+If the retargeted motion starts in a dynamic single-support phase and the robot consistently falls sideways within the first few tenths of a second, generate a rephased motion that starts from a more stable double-support frame before training:
+
+```bash
+python humanoid/scripts/rephase_motion_npz.py --input INPUT.npz --output OUTPUT.npz --add-foot-contacts
+```
+
+Then pass the generated NPZ through `MOTION_REFERENCE_FILE=...` and consider enabling `MOTION_CONTACT_SCHEDULE_SCALE` plus stronger early root/keypoint reward scale overrides in `humanoid/scripts/train_focused_view.py`.
+
 ## AGENTS.md Registration Policy
 
 Register content here only when a future agent should know it before acting in this repository.

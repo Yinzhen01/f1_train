@@ -1037,6 +1037,17 @@ def train(args):
     ref_keypoint_pos_scale = os.environ.get("REF_KEYPOINT_POS_SCALE")
     if ref_keypoint_pos_scale is not None:
         env_cfg.rewards.scales.ref_keypoint_pos = float(ref_keypoint_pos_scale)
+    reward_scale_overrides = {
+        "MOTION_CONTACT_SCHEDULE_SCALE": "motion_contact_schedule",
+        "MOTION_ROOT_HEIGHT_SCALE": "motion_root_height",
+        "MOTION_ROOT_ORIENTATION_SCALE": "motion_root_orientation",
+        "MOTION_ROOT_LIN_VEL_SCALE": "motion_root_lin_vel",
+        "MOTION_ROOT_ANG_VEL_SCALE": "motion_root_ang_vel",
+    }
+    for env_name, scale_name in reward_scale_overrides.items():
+        raw_scale = os.environ.get(env_name)
+        if raw_scale is not None:
+            setattr(env_cfg.rewards.scales, scale_name, float(raw_scale))
     motion_keypoint_pos_sigma = os.environ.get("MOTION_KEYPOINT_POS_SIGMA")
     if motion_keypoint_pos_sigma is not None:
         env_cfg.rewards.motion_keypoint_pos_sigma = float(motion_keypoint_pos_sigma)
