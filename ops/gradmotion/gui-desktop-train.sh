@@ -10,6 +10,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 TASK="${TASK:-f1_dh_stand}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 PYTHON_BIN="${PYTHON_BIN:-python}"
+CONDA_ENV="${CONDA_ENV:-pointfoot_legged_gym}"
+CONDA_AUTO_ACTIVATE="${CONDA_AUTO_ACTIVATE:-1}"
 TENSORBOARD_PORT="${TENSORBOARD_PORT:-6006}"
 GUI_USER="${GUI_USER:-}"
 GUI_HOLD_LOG="${GUI_HOLD_LOG:-/tmp/codex_isaac_viewer_hold.log}"
@@ -27,6 +29,7 @@ Commands:
   gui-env           Print detected GUI DISPLAY/XAUTHORITY settings.
   open-app          Open a small GUI app on the cloud desktop. Default: xclock.
   gui-hold          Start a detached long-lived 1-env Isaac Gym viewer.
+  gui-hold-focused  Start detached viewer with camera focused on VIEWER_FOCUS_ENV.
   stop-gui-hold     Stop the detached viewer started by gui-hold.
   gui-hold-status   Show detached viewer PID/log status.
   gui-smoke         Run Isaac Gym viewer smoke test. Default: NUM_ENVS=16 MAX_ITERATIONS=10.
@@ -44,11 +47,17 @@ Environment overrides:
   LOAD_RUN=<run_name>
   CUDA_VISIBLE_DEVICES=0
   WANDB_MODE=offline
+  CONDA_ENV=pointfoot_legged_gym
+  CONDA_AUTO_ACTIVATE=1
   DISPLAY=:0
   GUI_USER=<desktop_user>
   GUI_HOLD_LOG=/tmp/codex_isaac_viewer_hold.log
   GUI_HOLD_PID_FILE=/tmp/codex_isaac_viewer_hold.pid
   GUI_HOLD_RUN_NAME=codex_gui_viewer_hold
+  VIEWER_FOCUS_ENV=0
+  VIEWER_REL_POS=1.3,-1.2,1.1
+  VIEWER_REL_LOOKAT=0,0,0.75
+  TERMINATION_SUPPORT_RECT_MARGIN=0.10
   PYTHON_BIN=python
   TENSORBOARD_PORT=6006
 
@@ -58,6 +67,7 @@ Examples:
   bash ops/gradmotion/gui-desktop-train.sh gui-env
   bash ops/gradmotion/gui-desktop-train.sh open-app xclock
   bash ops/gradmotion/gui-desktop-train.sh gui-hold
+  TASK=f1_dh_motion_imitation NUM_ENVS=10 bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
   bash ops/gradmotion/gui-desktop-train.sh stop-gui-hold
   bash ops/gradmotion/gui-desktop-train.sh gui-single
   NUM_ENVS=16 MAX_ITERATIONS=10 bash ops/gradmotion/gui-desktop-train.sh gui-smoke
@@ -69,6 +79,49 @@ EOF
 
 log() {
   printf '[gradmotion-gui] %s\n' "$*"
+}
+
+activate_conda_env() {
+  if [[ "${CONDA_AUTO_ACTIVATE}" != "1" || -z "${CONDA_ENV}" ]]; then
+    log "Skipping conda activation"
+    return
+  fi
+
+  if [[ "${CONDA_DEFAULT_ENV:-}" == "${CONDA_ENV}" ]]; then
+    log "Conda env already active: ${CONDA_ENV}"
+    return
+  fi
+
+  local conda_sh=""
+  local candidates=(
+    "/root/miniconda3/etc/profile.d/conda.sh"
+    "${HOME:-}/miniconda3/etc/profile.d/conda.sh"
+    "${HOME:-}/anaconda3/etc/profile.d/conda.sh"
+    "/opt/conda/etc/profile.d/conda.sh"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "${candidate}" ]]; then
+      conda_sh="${candidate}"
+      break
+    fi
+  done
+
+  if [[ -n "${conda_sh}" ]]; then
+    # shellcheck disable=SC1090
+    source "${conda_sh}"
+  elif command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+  else
+    log "Conda not found; continuing with current Python"
+    return
+  fi
+
+  if conda activate "${CONDA_ENV}"; then
+    log "Activated conda env: ${CONDA_ENV}"
+  else
+    log "Failed to activate conda env '${CONDA_ENV}'; continuing with current Python"
+  fi
 }
 
 ensure_repo_root() {
@@ -268,7 +321,7 @@ run_train() {
 
 find_gui_hold_pids() {
   local run_name="${RUN_NAME:-${GUI_HOLD_RUN_NAME}}"
-  pgrep -f "humanoid/scripts/train.py.*--run_name=${run_name}" || true
+  pgrep -f "humanoid/scripts/train(_focused_view)?\\.py.*--run_name=${run_name}" || true
 }
 
 run_gui_hold_status() {
@@ -297,11 +350,30 @@ run_gui_hold_status() {
 }
 
 run_gui_hold() {
+  local train_script="humanoid/scripts/train.py"
+  local extra_args=("$@")
+  run_gui_hold_with_script "${train_script}" "${extra_args[@]}"
+}
+
+run_gui_hold_focused() {
+  local train_script="humanoid/scripts/train_focused_view.py"
+  local extra_args=("$@")
+  run_gui_hold_with_script "${train_script}" "${extra_args[@]}"
+}
+
+run_gui_hold_with_script() {
+  local train_script="$1"
+  shift
   local extra_args=("$@")
 
   ensure_repo_root
   ensure_display
   check_required_python_modules
+
+  if [[ ! -f "${train_script}" ]]; then
+    echo "Missing training script: ${train_script}" >&2
+    exit 1
+  fi
 
   local existing_pids
   existing_pids="$(find_gui_hold_pids)"
@@ -316,7 +388,7 @@ run_gui_hold() {
   local run_name="${RUN_NAME:-${GUI_HOLD_RUN_NAME}}"
 
   local cmd=(
-    "${PYTHON_BIN}" "humanoid/scripts/train.py"
+    "${PYTHON_BIN}" "${train_script}"
     "--task=${TASK}"
     "--num_envs=${num_envs}"
     "--max_iterations=${max_iterations}"
@@ -325,6 +397,7 @@ run_gui_hold() {
   cmd+=("${extra_args[@]}")
 
   log "Starting detached GUI viewer: num_envs=${num_envs}, max_iterations=${max_iterations}, run_name=${run_name}"
+  log "Training script: ${train_script}"
   log "Log file: ${GUI_HOLD_LOG}"
 
   nohup env \
@@ -332,6 +405,9 @@ run_gui_hold() {
     WANDB_MODE="${WANDB_MODE}" \
     DISPLAY="${DISPLAY}" \
     XAUTHORITY="${XAUTHORITY:-}" \
+    VIEWER_FOCUS_ENV="${VIEWER_FOCUS_ENV:-0}" \
+    VIEWER_REL_POS="${VIEWER_REL_POS:-1.3,-1.2,1.1}" \
+    VIEWER_REL_LOOKAT="${VIEWER_REL_LOOKAT:-0,0,0.75}" \
     "${cmd[@]}" \
     >"${GUI_HOLD_LOG}" 2>&1 < /dev/null &
 
@@ -367,7 +443,7 @@ stop_gui_hold() {
   pids="$(find_gui_hold_pids)"
   if [[ -n "${pids}" ]]; then
     log "Stopping detached viewer process(es) for run_name=${run_name}: ${pids//$'\n'/ }"
-    pkill -f "humanoid/scripts/train.py.*--run_name=${run_name}" || true
+    pkill -f "humanoid/scripts/train(_focused_view)?\\.py.*--run_name=${run_name}" || true
     stopped=1
   fi
 
@@ -409,6 +485,8 @@ main() {
     shift
   fi
 
+  activate_conda_env
+
   case "${command}" in
     -h|--help|help)
       usage
@@ -427,6 +505,9 @@ main() {
       ;;
     gui-hold)
       run_gui_hold "$@"
+      ;;
+    gui-hold-focused)
+      run_gui_hold_focused "$@"
       ;;
     stop-gui-hold)
       stop_gui_hold

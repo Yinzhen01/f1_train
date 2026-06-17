@@ -17,6 +17,8 @@ REMOTE_BIND="${CODEX_TUNNEL_REMOTE_BIND:-}"
 LOCAL_HOST="${CODEX_TUNNEL_LOCAL_HOST:-localhost}"
 LOCAL_PORT="${CODEX_TUNNEL_LOCAL_PORT:-22}"
 STRICT_HOST_KEY="${CODEX_TUNNEL_STRICT_HOST_KEY:-accept-new}"
+CONDA_ENV="${CONDA_ENV:-pointfoot_legged_gym}"
+CONDA_AUTO_ACTIVATE="${CONDA_AUTO_ACTIVATE:-1}"
 
 DO_BOOTSTRAP="${DO_BOOTSTRAP:-1}"
 BOOTSTRAP_MUST_PASS="${BOOTSTRAP_MUST_PASS:-0}"
@@ -47,6 +49,8 @@ Environment overrides:
   CODEX_TUNNEL_REMOTE_PORT=2222
   CODEX_TUNNEL_REMOTE_BIND=
   CODEX_TUNNEL_PUBLIC_KEY_FILE=ops/gradmotion/codex_gradmotion.pub
+  CONDA_ENV=pointfoot_legged_gym
+  CONDA_AUTO_ACTIVATE=1
   DO_BOOTSTRAP=1
   BOOTSTRAP_MUST_PASS=0
 
@@ -60,6 +64,49 @@ EOF
 
 log() {
   printf '[codex-tunnel] %s\n' "$*"
+}
+
+activate_conda_env() {
+  if [[ "${CONDA_AUTO_ACTIVATE}" != "1" || -z "${CONDA_ENV}" ]]; then
+    log "Skipping conda activation"
+    return
+  fi
+
+  if [[ "${CONDA_DEFAULT_ENV:-}" == "${CONDA_ENV}" ]]; then
+    log "Conda env already active: ${CONDA_ENV}"
+    return
+  fi
+
+  local conda_sh=""
+  local candidates=(
+    "/root/miniconda3/etc/profile.d/conda.sh"
+    "${HOME:-}/miniconda3/etc/profile.d/conda.sh"
+    "${HOME:-}/anaconda3/etc/profile.d/conda.sh"
+    "/opt/conda/etc/profile.d/conda.sh"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "${candidate}" ]]; then
+      conda_sh="${candidate}"
+      break
+    fi
+  done
+
+  if [[ -n "${conda_sh}" ]]; then
+    # shellcheck disable=SC1090
+    source "${conda_sh}"
+  elif command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+  else
+    log "Conda not found; continuing with current Python"
+    return
+  fi
+
+  if conda activate "${CONDA_ENV}"; then
+    log "Activated conda env: ${CONDA_ENV}"
+  else
+    log "Failed to activate conda env '${CONDA_ENV}'; continuing with current Python"
+  fi
 }
 
 parse_args() {
@@ -219,6 +266,7 @@ main() {
   log "Public key file: ${PUBLIC_KEY_FILE}"
   log "Remote port: ${REMOTE_PORT}"
 
+  activate_conda_env
   install_codex_public_key
   ensure_local_sshd
   run_bootstrap

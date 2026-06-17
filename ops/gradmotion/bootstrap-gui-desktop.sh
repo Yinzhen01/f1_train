@@ -13,6 +13,8 @@ PYTHON_BIN="${PYTHON_BIN:-python}"
 TASK="${TASK:-f1_dh_stand}"
 WANDB_MODE="${WANDB_MODE:-offline}"
 DISPLAY="${DISPLAY:-}"
+CONDA_ENV="${CONDA_ENV:-pointfoot_legged_gym}"
+CONDA_AUTO_ACTIVATE="${CONDA_AUTO_ACTIVATE:-1}"
 
 DO_GIT_PULL="${DO_GIT_PULL:-1}"
 DO_INSTALL="${DO_INSTALL:-1}"
@@ -56,6 +58,8 @@ Options:
 
 Environment overrides:
   PYTHON_BIN=python
+  CONDA_ENV=pointfoot_legged_gym
+  CONDA_AUTO_ACTIVATE=1
   TASK=f1_dh_stand
   WANDB_MODE=offline
   DISPLAY=:1
@@ -78,6 +82,49 @@ EOF
 
 log() {
   printf '[gradmotion-bootstrap] %s\n' "$*"
+}
+
+activate_conda_env() {
+  if [[ "${CONDA_AUTO_ACTIVATE}" != "1" || -z "${CONDA_ENV}" ]]; then
+    log "Skipping conda activation"
+    return
+  fi
+
+  if [[ "${CONDA_DEFAULT_ENV:-}" == "${CONDA_ENV}" ]]; then
+    log "Conda env already active: ${CONDA_ENV}"
+    return
+  fi
+
+  local conda_sh=""
+  local candidates=(
+    "/root/miniconda3/etc/profile.d/conda.sh"
+    "${HOME:-}/miniconda3/etc/profile.d/conda.sh"
+    "${HOME:-}/anaconda3/etc/profile.d/conda.sh"
+    "/opt/conda/etc/profile.d/conda.sh"
+  )
+
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "${candidate}" ]]; then
+      conda_sh="${candidate}"
+      break
+    fi
+  done
+
+  if [[ -n "${conda_sh}" ]]; then
+    # shellcheck disable=SC1090
+    source "${conda_sh}"
+  elif command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+  else
+    log "Conda not found; continuing with current Python"
+    return
+  fi
+
+  if conda activate "${CONDA_ENV}"; then
+    log "Activated conda env: ${CONDA_ENV}"
+  else
+    log "Failed to activate conda env '${CONDA_ENV}'; continuing with current Python"
+  fi
 }
 
 run_step() {
@@ -140,6 +187,7 @@ main() {
     exit 1
   fi
 
+  activate_conda_env
   export PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
   export DISPLAY
 
