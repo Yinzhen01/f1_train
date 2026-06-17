@@ -13,6 +13,7 @@ when the motion-imitation training profile enables body_pos keypoints.
 from __future__ import annotations
 
 import argparse
+import copy
 import os
 import re
 import tempfile
@@ -62,6 +63,45 @@ def _joint_qpos_addresses(model: mujoco.MjModel, joint_names: list[str]) -> np.n
     return np.asarray(addresses, dtype=np.int64)
 
 
+def _rewrite_meshdir_for_parent(root: ET.Element, source_parent: Path, target_parent: Path) -> None:
+    for compiler in root.findall("compiler"):
+        meshdir = compiler.attrib.get("meshdir")
+        if not meshdir:
+            continue
+        mesh_path = (source_parent / meshdir).resolve()
+        if not mesh_path.exists():
+            for parent in (source_parent, *source_parent.parents):
+                candidate = parent / "meshes"
+                if candidate.exists():
+                    mesh_path = candidate.resolve()
+                    break
+        compiler.attrib["meshdir"] = os.path.relpath(mesh_path, target_parent)
+
+
+def _inline_includes(root: ET.Element, source_parent: Path, target_parent: Path) -> None:
+    children = list(root)
+    for child in children:
+        if child.tag != "include":
+            _inline_includes(child, source_parent, target_parent)
+            continue
+
+        include_file = child.attrib.get("file")
+        if not include_file:
+            continue
+        include_path = (source_parent / include_file).resolve()
+        include_tree = ET.parse(include_path)
+        include_root = include_tree.getroot()
+        include_parent = include_path.parent
+        _inline_includes(include_root, include_parent, target_parent)
+        _rewrite_meshdir_for_parent(include_root, include_parent, target_parent)
+
+        insert_at = list(root).index(child)
+        root.remove(child)
+        for included_child in list(include_root):
+            root.insert(insert_at, copy.deepcopy(included_child))
+            insert_at += 1
+
+
 def _load_mujoco_model(mjcf: Path) -> mujoco.MjModel:
     try:
         return mujoco.MjModel.from_xml_path(str(mjcf))
@@ -72,6 +112,7 @@ def _load_mujoco_model(mjcf: Path) -> mujoco.MjModel:
 
     tree = ET.parse(mjcf)
     root = tree.getroot()
+    _inline_includes(root, mjcf.parent, mjcf.parent)
     for compiler in root.findall("compiler"):
         compiler.attrib.setdefault("autolimits", "true")
         meshdir = compiler.attrib.get("meshdir")

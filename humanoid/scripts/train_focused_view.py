@@ -1034,6 +1034,9 @@ def train(args):
     motion_reference_file = os.environ.get("MOTION_REFERENCE_FILE")
     if motion_cfg is not None and motion_reference_file:
         motion_cfg.file = motion_reference_file
+    motion_reset_root_height_offset = os.environ.get("MOTION_RESET_ROOT_HEIGHT_OFFSET")
+    if motion_cfg is not None and motion_reset_root_height_offset is not None:
+        motion_cfg.reset_root_height_offset = float(motion_reset_root_height_offset)
     ref_keypoint_pos_scale = os.environ.get("REF_KEYPOINT_POS_SCALE")
     if ref_keypoint_pos_scale is not None:
         env_cfg.rewards.scales.ref_keypoint_pos = float(ref_keypoint_pos_scale)
