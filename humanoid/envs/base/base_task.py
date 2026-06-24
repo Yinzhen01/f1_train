@@ -31,6 +31,7 @@
 # Copyright (c) 2024, AgiBot Inc. All rights reserved.
 
 import sys
+import os
 from isaacgym import gymapi
 from isaacgym import gymutil
 import numpy as np
@@ -59,7 +60,8 @@ class BaseTask():
 
         # graphics device for rendering, -1 for no rendering
         self.graphics_device_id = self.sim_device_id
-        if self.headless == True:
+        enable_headless_render = os.environ.get("ENABLE_HEADLESS_RENDER", "0").lower() in ("1", "true", "yes", "on")
+        if self.headless == True and not enable_headless_render:
             self.graphics_device_id = -1
 
         self.num_envs = cfg.env.num_envs

@@ -8,7 +8,10 @@ known, which is necessary on terrain where env 0 is not near world origin.
 """
 
 import os
+import json
+import time
 
+import numpy as np
 from isaacgym import gymapi, gymutil
 from humanoid.envs import *  # noqa: F401,F403
 from humanoid.utils import get_args, task_registry
@@ -46,6 +49,32 @@ def _parse_optional_float(raw):
 def _parse_name_list(name):
     raw = os.environ.get(name, "")
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _parse_world_keypoint_thresholds(raw):
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if raw.lower() in ("", "none", "null", "off", "false", "disabled"):
+        return ()
+
+    rules = []
+    for item in raw.split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        parts = [part.strip() for part in item.split(":")]
+        if len(parts) != 3:
+            raise ValueError(
+                "TERMINATION_WORLD_KEYPOINT_THRESHOLDS entries must be"
+                f" label:token1|token2:threshold, got: {item}"
+            )
+        label, tokens_raw, threshold_raw = parts
+        tokens = tuple(token.strip() for token in tokens_raw.split("|") if token.strip())
+        if not label or not tokens:
+            raise ValueError(f"Invalid world keypoint threshold entry: {item}")
+        rules.append((label, tokens, float(threshold_raw)))
+    return tuple(rules)
 
 
 def _reward_scale(cfg, name):
@@ -200,6 +229,8 @@ def _print_training_context(args, env_cfg):
         print("motion_reference.enabled:", motion_cfg.enabled, flush=True)
         print("motion_reference.file:", motion_cfg.file, flush=True)
         print("motion_reference.stand_uses_default_pose:", motion_cfg.stand_uses_default_pose, flush=True)
+        print("motion_reference.playback_speed:", motion_cfg.playback_speed, flush=True)
+        print("motion_reference.start_time_offset:", getattr(motion_cfg, "start_time_offset", None), flush=True)
         print("motion_reference.reset_root_orientation:", motion_cfg.reset_root_orientation, flush=True)
         print("motion_reference.reset_root_velocity:", motion_cfg.reset_root_velocity, flush=True)
         print(
@@ -266,6 +297,80 @@ def _print_joint_reference_table(env, focus_env):
                 flush=True,
             )
         print("joint_reference_table_end", flush=True)
+
+
+def _dump_initial_body_positions(env, env_id):
+    dump_path = os.environ.get("INITIAL_BODY_POS_DUMP_PATH")
+    if not dump_path:
+        return False
+
+    if env_id < 0 or env_id >= env.num_envs:
+        raise ValueError(f"VIEWER_FOCUS_ENV={env_id} is outside num_envs={env.num_envs}")
+
+    if _parse_bool("INITIAL_BODY_POS_DUMP_RESET") is not False:
+        env.reset_idx(torch.arange(env.num_envs, device=env.device))
+
+    warmup_steps = int(os.environ.get("INITIAL_BODY_POS_DUMP_SIM_STEPS", "0"))
+    for _ in range(warmup_steps):
+        env.gym.simulate(env.sim)
+        if env.device == "cpu":
+            env.gym.fetch_results(env.sim, True)
+
+    env.gym.refresh_actor_root_state_tensor(env.sim)
+    env.gym.refresh_dof_state_tensor(env.sim)
+    env.gym.refresh_rigid_body_state_tensor(env.sim)
+    if hasattr(env, "compute_ref_state"):
+        env.compute_ref_state()
+
+    body_names = list(getattr(env, "body_names", []))
+    body_pos_world = env.rigid_state[env_id, :, 0:3].detach().cpu().numpy()
+    base_pos_world = body_pos_world[0].copy() if len(body_pos_world) else np.zeros(3)
+    body_pos_base = body_pos_world - base_pos_world
+
+    ref_body_pos_world = None
+    ref_body_pos_base = None
+    if getattr(env, "ref_body_pos", None) is not None:
+        ref_body_pos_world = env.ref_body_pos[env_id].detach().cpu().numpy()
+        if ref_body_pos_world.shape[0] == len(body_names):
+            ref_body_pos_base = ref_body_pos_world - ref_body_pos_world[0]
+
+    rows = []
+    for idx, name in enumerate(body_names):
+        row = {
+            "idx": idx,
+            "name": name,
+            "world": body_pos_world[idx].tolist(),
+            "base_relative": body_pos_base[idx].tolist(),
+        }
+        if ref_body_pos_world is not None and idx < ref_body_pos_world.shape[0]:
+            row["ref_world"] = ref_body_pos_world[idx].tolist()
+            if ref_body_pos_base is not None:
+                row["ref_base_relative"] = ref_body_pos_base[idx].tolist()
+        rows.append(row)
+
+    payload = {
+        "env_id": env_id,
+        "asset_file": getattr(env.cfg.asset, "file", None),
+        "motion_reference_file": getattr(getattr(env.cfg, "motion_reference", None), "file", None),
+        "body_count": len(body_names),
+        "dof_names": list(getattr(env, "dof_names", [])),
+        "dof_pos": env.dof_pos[env_id].detach().cpu().numpy().tolist(),
+        "default_dof_pos": env.default_dof_pos[0].detach().cpu().numpy().tolist(),
+        "ref_dof_pos": (
+            env.ref_dof_pos[env_id].detach().cpu().numpy().tolist()
+            if getattr(env, "ref_dof_pos", None) is not None
+            else None
+        ),
+        "root_state": env.root_states[env_id].detach().cpu().numpy().tolist(),
+        "env_origin": env.env_origins[env_id].detach().cpu().numpy().tolist(),
+        "bodies": rows,
+    }
+
+    with open(dump_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+    print(f"initial_body_pos_dump: wrote {dump_path}", flush=True)
+    return _parse_bool("INITIAL_BODY_POS_DUMP_EXIT") is not False
 
 
 def _print_joint_error_diagnostics(env, topk, step, focus_env, print_all):
@@ -678,6 +783,13 @@ def _install_ref_keypoint_markers(env):
     radius = float(os.environ.get("REF_MARKER_RADIUS", "0.035"))
     color = _parse_vec("REF_MARKER_COLOR", "1,0,0")
     current_color = _parse_vec("CURRENT_MARKER_COLOR", "0,1,0")
+    draw_current_markers = _parse_bool("DRAW_CURRENT_MARKERS")
+    if draw_current_markers is None:
+        draw_current_markers = True
+    draw_error_lines = _parse_bool("DRAW_MARKER_ERROR_LINES")
+    if draw_error_lines is None:
+        draw_error_lines = True
+    error_line_color = _parse_vec("MARKER_ERROR_LINE_COLOR", "1,1,0")
     ref_sphere_geom = gymutil.WireframeSphereGeometry(
         radius,
         8,
@@ -701,6 +813,8 @@ def _install_ref_keypoint_markers(env):
         f" radius={radius}"
         f" ref_color={','.join(str(v) for v in color)}"
         f" current_color={','.join(str(v) for v in current_color)}"
+        f" draw_current={draw_current_markers}"
+        f" draw_error_lines={draw_error_lines}"
         f" names={','.join(marker_names)}",
         flush=True,
     )
@@ -726,14 +840,6 @@ def _install_ref_keypoint_markers(env):
                         gymapi.Vec3(float(ref_pos[0]), float(ref_pos[1]), float(ref_pos[2])),
                         r=None,
                     )
-                    current_sphere_pose = gymapi.Transform(
-                        gymapi.Vec3(
-                            float(current_pos[0]),
-                            float(current_pos[1]),
-                            float(current_pos[2]),
-                        ),
-                        r=None,
-                    )
                     gymutil.draw_lines(
                         ref_sphere_geom,
                         env.gym,
@@ -741,13 +847,46 @@ def _install_ref_keypoint_markers(env):
                         env.envs[marker_env],
                         ref_sphere_pose,
                     )
-                    gymutil.draw_lines(
-                        current_sphere_geom,
-                        env.gym,
-                        env.viewer,
-                        env.envs[marker_env],
-                        current_sphere_pose,
-                    )
+                    if draw_current_markers:
+                        current_sphere_pose = gymapi.Transform(
+                            gymapi.Vec3(
+                                float(current_pos[0]),
+                                float(current_pos[1]),
+                                float(current_pos[2]),
+                            ),
+                            r=None,
+                        )
+                        gymutil.draw_lines(
+                            current_sphere_geom,
+                            env.gym,
+                            env.viewer,
+                            env.envs[marker_env],
+                            current_sphere_pose,
+                        )
+                    if draw_error_lines:
+                        vertices = np.asarray(
+                            [
+                                [
+                                    float(current_pos[0]),
+                                    float(current_pos[1]),
+                                    float(current_pos[2]),
+                                ],
+                                [
+                                    float(ref_pos[0]),
+                                    float(ref_pos[1]),
+                                    float(ref_pos[2]),
+                                ],
+                            ],
+                            dtype=np.float32,
+                        )
+                        colors = np.asarray([error_line_color], dtype=np.float32)
+                        env.gym.add_lines(
+                            env.viewer,
+                            env.envs[marker_env],
+                            1,
+                            vertices,
+                            colors,
+                        )
         else:
             step = int(getattr(env, "common_step_counter", 0))
             if step != last_unavailable["step"]:
@@ -888,6 +1027,23 @@ def _install_termination_diagnostics(env):
 
     original_check_termination = env.check_termination
     last_printed = {"step": -1}
+    last_contact_printed = {"step": -1}
+    contact_diag_enabled = _parse_bool("TERMINATION_CONTACT_DIAG")
+    if contact_diag_enabled is None:
+        contact_diag_enabled = True
+    contact_diag_max_envs = int(os.environ.get("TERMINATION_CONTACT_DIAG_MAX_ENVS", "4"))
+
+    body_names = list(getattr(env, "body_names", []))
+    termination_contact_indices = getattr(env, "termination_contact_indices", None)
+    termination_contact_entries = []
+    if termination_contact_indices is not None:
+        for contact_index in termination_contact_indices.detach().cpu().tolist():
+            contact_index = int(contact_index)
+            if 0 <= contact_index < len(body_names):
+                contact_name = body_names[contact_index]
+            else:
+                contact_name = f"body_{contact_index}"
+            termination_contact_entries.append((contact_index, contact_name))
 
     def _sum_bool_attr(name):
         value = getattr(env, name, None)
@@ -901,9 +1057,47 @@ def _install_termination_diagnostics(env):
             return 0.0, 0.0, 0.0
         return float(value.min()), float(value.mean()), float(value.max())
 
+    def _print_contact_diag(step):
+        if not contact_diag_enabled or not termination_contact_entries:
+            return
+        base_contact = getattr(env, "termination_base_contact_buf", None)
+        if base_contact is None or not bool(base_contact.any().item()):
+            return
+        if step == last_contact_printed["step"]:
+            return
+
+        env_ids = torch.nonzero(base_contact.bool(), as_tuple=False).flatten()
+        if contact_diag_max_envs > 0:
+            env_ids = env_ids[:contact_diag_max_envs]
+
+        print(f"termination_contact_diag_step: {step}", flush=True)
+        print(
+            "termination_contact_diag_columns:"
+            " env_id body_idx body_name force_x force_y force_z force_norm",
+            flush=True,
+        )
+        for env_id_tensor in env_ids:
+            env_id = int(env_id_tensor.item())
+            for body_idx, body_name in termination_contact_entries:
+                force = env.contact_forces[env_id, body_idx, :]
+                force_norm = float(torch.norm(force).item())
+                print(
+                    "termination_contact_diag:"
+                    f" {env_id}"
+                    f" {body_idx}"
+                    f" {body_name}"
+                    f" {float(force[0]):.6f}"
+                    f" {float(force[1]):.6f}"
+                    f" {float(force[2]):.6f}"
+                    f" {force_norm:.6f}",
+                    flush=True,
+                )
+        last_contact_printed["step"] = step
+
     def check_termination_with_diag():
         original_check_termination()
         step = int(getattr(env, "common_step_counter", 0))
+        _print_contact_diag(step)
         if step > 0 and step % interval == 0 and step != last_printed["step"]:
             base_height = env.root_states[:, 2] - env.env_origins[:, 2]
             ref_xy_min, ref_xy_mean, ref_xy_max = _stats_attr("ref_root_xy_distance")
@@ -949,6 +1143,13 @@ def _install_termination_diagnostics(env):
 
     env.check_termination = check_termination_with_diag
     print(f"termination_diag.enabled: interval={interval}", flush=True)
+    print(
+        "termination_contact_diag.enabled:"
+        f" enabled={contact_diag_enabled}"
+        f" max_envs={contact_diag_max_envs}"
+        f" bodies={termination_contact_entries}",
+        flush=True,
+    )
 
 
 def _install_initial_settle_diagnostics(env):
@@ -1010,6 +1211,53 @@ def _install_initial_settle_diagnostics(env):
     env.step = step_with_initial_settle_diag
 
 
+def _install_freeze_on_reset(env):
+    freeze_on_reset = _parse_bool("DEBUG_FREEZE_ON_RESET")
+    if not freeze_on_reset:
+        return
+
+    env.debug_freeze_on_reset = True
+    freeze_seconds = float(os.environ.get("DEBUG_FREEZE_ON_RESET_SECONDS", "3.0"))
+    original_step = env.step
+    freeze_state = {"active": False, "started_at": 0.0}
+
+    def step_with_freeze(actions):
+        if getattr(env, "debug_freeze_active", False):
+            env_ids = getattr(env, "debug_freeze_env_ids", torch.zeros(0, device=env.device))
+            if not freeze_state["active"]:
+                env_ids = getattr(env, "debug_freeze_env_ids", torch.zeros(0, device=env.device))
+                freeze_state["active"] = True
+                freeze_state["started_at"] = time.monotonic()
+                print(
+                    "debug_freeze_on_reset.active:"
+                    f" step={getattr(env, 'debug_freeze_step', -1)}"
+                    f" env_ids={env_ids.detach().cpu().tolist()}",
+                    flush=True,
+                )
+            elapsed = time.monotonic() - freeze_state["started_at"]
+            if elapsed >= freeze_seconds:
+                if len(env_ids) > 0:
+                    env.reset_idx(env_ids)
+                    env.compute_observations()
+                    env.reset_buf[env_ids] = False
+                env.debug_freeze_active = False
+                freeze_state["active"] = False
+                print(
+                    "debug_freeze_on_reset.resume:"
+                    f" elapsed_s={elapsed:.3f}"
+                    f" env_ids={env_ids.detach().cpu().tolist()}",
+                    flush=True,
+                )
+                env.render()
+                return env.obs_buf, env.privileged_obs_buf, env.rew_buf, env.reset_buf, env.extras
+            env.render()
+            return env.obs_buf, env.privileged_obs_buf, env.rew_buf, env.reset_buf, env.extras
+        return original_step(actions)
+
+    env.step = step_with_freeze
+    print(f"debug_freeze_on_reset.enabled: true seconds={freeze_seconds}", flush=True)
+
+
 def train(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     domain_randomize_all = _parse_bool("DOMAIN_RANDOMIZE_ALL")
@@ -1037,6 +1285,9 @@ def train(args):
     motion_reset_root_height_offset = os.environ.get("MOTION_RESET_ROOT_HEIGHT_OFFSET")
     if motion_cfg is not None and motion_reset_root_height_offset is not None:
         motion_cfg.reset_root_height_offset = float(motion_reset_root_height_offset)
+    motion_start_time_offset = os.environ.get("MOTION_START_TIME_OFFSET")
+    if motion_cfg is not None and motion_start_time_offset is not None:
+        motion_cfg.start_time_offset = float(motion_start_time_offset)
     ref_keypoint_pos_scale = os.environ.get("REF_KEYPOINT_POS_SCALE")
     if ref_keypoint_pos_scale is not None:
         env_cfg.rewards.scales.ref_keypoint_pos = float(ref_keypoint_pos_scale)
@@ -1092,6 +1343,11 @@ def train(args):
     termination_support_rect_margin = os.environ.get("TERMINATION_SUPPORT_RECT_MARGIN")
     if termination_support_rect_margin is not None:
         env_cfg.rewards.termination_support_rect_margin = float(termination_support_rect_margin)
+    termination_world_keypoint_thresholds = _parse_world_keypoint_thresholds(
+        os.environ.get("TERMINATION_WORLD_KEYPOINT_THRESHOLDS")
+    )
+    if termination_world_keypoint_thresholds is not None:
+        env_cfg.rewards.termination_world_keypoint_thresholds = termination_world_keypoint_thresholds
 
     env, env_cfg = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
     _print_training_context(args, env_cfg)
@@ -1117,11 +1373,14 @@ def train(args):
         env.set_camera(cam_pos, cam_lookat)
 
     _print_joint_reference_table(env, focus_env)
+    if _dump_initial_body_positions(env, focus_env):
+        return
     _install_ref_keypoint_markers(env)
     _install_joint_diagnostics(env)
     _install_body_pos_diagnostics(env)
     _install_termination_diagnostics(env)
     _install_initial_settle_diagnostics(env)
+    _install_freeze_on_reset(env)
 
     ppo_runner, train_cfg, _ = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     ppo_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=False)

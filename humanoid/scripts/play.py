@@ -45,15 +45,15 @@ from isaacgym.torch_utils import *
 import torch
 from datetime import datetime
 
-import pygame
 from threading import Thread
 
 
 x_vel_cmd, y_vel_cmd, yaw_vel_cmd = 0.0, 0.0, 0.0
-joystick_use = True
+joystick_use = os.environ.get("JOYSTICK_USE", "0").lower() in ("1", "true", "yes", "on")
 joystick_opened = False
 
 if joystick_use:
+    import pygame
     pygame.init()
     try:
         # get joystick
@@ -114,7 +114,8 @@ def play(args):
 
     # prepare environment
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    env.set_camera(env_cfg.viewer.pos, env_cfg.viewer.lookat)
+    if not args.headless:
+        env.set_camera(env_cfg.viewer.pos, env_cfg.viewer.lookat)
 
     # load policy
     train_cfg.runner.resume = True
@@ -161,7 +162,8 @@ def play(args):
     obs = env.get_observations()
 
     np.set_printoptions(formatter={'float': '{:0.4f}'.format})
-    for i in range(10*stop_state_log):
+    play_steps = int(os.environ.get("PLAY_STEPS", str(10 * stop_state_log)))
+    for i in range(play_steps):
         
         actions = policy(obs.detach()) # * 0.
         
@@ -243,8 +245,8 @@ def play(args):
         video.release()
 
 if __name__ == '__main__':
-    EXPORT_POLICY = False
-    RENDER = False
-    FIX_COMMAND = False
+    EXPORT_POLICY = os.environ.get("EXPORT_POLICY", "0").lower() in ("1", "true", "yes", "on")
+    RENDER = os.environ.get("RENDER", "0").lower() in ("1", "true", "yes", "on")
+    FIX_COMMAND = os.environ.get("FIX_COMMAND", "0").lower() in ("1", "true", "yes", "on")
     args = get_args()
     play(args)

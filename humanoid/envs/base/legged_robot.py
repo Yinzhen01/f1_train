@@ -188,7 +188,13 @@ class LeggedRobot(BaseTask):
         self.check_termination()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        self.reset_idx(env_ids)
+        if getattr(self, "debug_freeze_on_reset", False) and len(env_ids) > 0:
+            self.debug_freeze_active = True
+            self.debug_freeze_env_ids = env_ids.clone()
+            self.debug_freeze_reset_buf = self.reset_buf.clone()
+            self.debug_freeze_step = int(self.common_step_counter)
+        else:
+            self.reset_idx(env_ids)
         self.compute_observations() # in some cases a simulation step might be required to refresh some obs (for example body positions)
 
         # get last status
@@ -207,7 +213,7 @@ class LeggedRobot(BaseTask):
         """ Check if environments need to be reset
         """
         base_contact = torch.any(torch.norm(self.contact_forces[:, self.termination_contact_indices, :], dim=-1) > 1., dim=1)
-        self.reset_buf = base_contact
+        self.reset_buf = base_contact.clone()
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         
         roll_cutoff = torch.abs(self.base_euler_xyz[:,0]) > 1.5
@@ -219,7 +225,7 @@ class LeggedRobot(BaseTask):
             base_height = self.root_states[:, 2] - self.env_origins[:, 2]
             height_cutoff = base_height < min_base_height
 
-        self.termination_base_contact_buf = base_contact
+        self.termination_base_contact_buf = base_contact.clone()
         self.termination_roll_buf = roll_cutoff
         self.termination_pitch_buf = pitch_cutoff
         self.termination_height_buf = height_cutoff
