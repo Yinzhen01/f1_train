@@ -50,6 +50,8 @@ class X1DHStandCfg(LeggedRobotCfg):
         num_envs = 4096
         episode_length_s = 24 #episode length in seconds
         use_ref_actions = False
+        use_ref_dof_pos_observation = False
+        include_privileged_gait_contact = True
         num_commands = 5 # sin_pos cos_pos vx vy vz
 
     class safety:

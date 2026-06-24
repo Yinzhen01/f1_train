@@ -128,8 +128,14 @@ class F1DHStandEnv(X1DHStandEnv):
             device=self.device,
             expected_joint_names=self.dof_names,
         )
+        start_time_offset = float(getattr(motion_cfg, "start_time_offset", 0.0))
         if motion_cfg.randomize_start_phase:
-            self.motion_time_offsets = torch.rand(self.num_envs, device=self.device) * self.motion_loader.duration
+            self.motion_time_offsets = (
+                torch.rand(self.num_envs, device=self.device) * self.motion_loader.duration
+                + start_time_offset
+            )
+        else:
+            self.motion_time_offsets[:] = start_time_offset
         self._init_ref_body_pos_indices()
 
     def _init_ref_body_pos_indices(self):
@@ -273,20 +279,91 @@ class F1DHStandEnv(X1DHStandEnv):
         )
 
     def reset_idx(self, env_ids):
+        diagnostics = None
         if len(env_ids) > 0 and self.motion_loader is not None:
+            diagnostics = self._collect_motion_episode_diagnostics(env_ids)
             motion_cfg = self.cfg.motion_reference
             if motion_cfg.randomize_start_phase:
+                start_time_offset = float(getattr(motion_cfg, "start_time_offset", 0.0))
                 self.motion_time_offsets[env_ids] = (
                     torch.rand(len(env_ids), device=self.device) * self.motion_loader.duration
+                    + start_time_offset
                 )
             else:
-                self.motion_time_offsets[env_ids] = 0.0
+                self.motion_time_offsets[env_ids] = float(getattr(motion_cfg, "start_time_offset", 0.0))
 
         super().reset_idx(env_ids)
+        if diagnostics is not None:
+            self.extras.setdefault("episode", {}).update(diagnostics)
         if len(env_ids) > 0 and self.motion_loader is not None:
             self._apply_root_height_offset(env_ids)
             self._update_ref_root_pos_offsets(env_ids)
 
+    def _collect_motion_episode_diagnostics(self, env_ids):
+        motion_cfg = self.cfg.motion_reference
+        duration = max(float(self.motion_loader.duration), 1e-6)
+        motion_times = (
+            self.phase_length_buf[env_ids].float() * self.dt * motion_cfg.playback_speed
+            + self.motion_time_offsets[env_ids]
+        )
+        phase = torch.remainder(motion_times, duration) / duration
+        episode_len = self.episode_length_buf[env_ids].float()
+        policy_actions = getattr(self, "policy_actions", self.actions)[env_ids]
+        action_abs = torch.abs(policy_actions)
+        action_clip = float(getattr(self.cfg.normalization, "clip_actions", 100.0))
+        saturation_threshold = 0.98 * action_clip
+
+        diagnostics = {
+            "motion_phase_reset_mean": torch.mean(phase),
+            "motion_phase_reset_min": torch.min(phase),
+            "motion_phase_reset_max": torch.max(phase),
+            "motion_episode_length_mean": torch.mean(episode_len),
+            "residual_action_abs_mean": torch.mean(action_abs),
+            "residual_action_abs_max": torch.max(action_abs),
+            "residual_action_saturation_rate": torch.mean((action_abs > saturation_threshold).float()),
+            "ref_joint_error_mean": torch.mean(torch.abs(self.dof_pos[env_ids] - self.ref_dof_pos[env_ids])),
+            "ref_joint_error_max": torch.mean(self.ref_joint_pos_error_max[env_ids]),
+            "ref_vel_xy_error_mean": torch.mean(torch.norm(self.root_states[env_ids, 7:9] - self.ref_root_lin_vel[env_ids, :2], dim=1)),
+            "base_height_reset_mean": torch.mean(self.root_states[env_ids, 2] - self.env_origins[env_ids, 2]),
+            "base_height_reset_min": torch.min(self.root_states[env_ids, 2] - self.env_origins[env_ids, 2]),
+            "ref_root_height_mean": torch.mean(self.aligned_ref_root_pos[env_ids, 2]),
+        }
+
+        phase_bin_count = 8
+        phase_bins = torch.clamp((phase * phase_bin_count).long(), 0, phase_bin_count - 1)
+        for bin_idx in range(phase_bin_count):
+            diagnostics[f"motion_phase_reset_bin_{bin_idx}"] = torch.mean((phase_bins == bin_idx).float())
+
+        reason_attrs = {
+            "timeout": "time_out_buf",
+            "base_contact": "termination_base_contact_buf",
+            "height": "termination_height_buf",
+            "roll": "termination_roll_buf",
+            "pitch": "termination_pitch_buf",
+            "ref_root_xy": "termination_ref_root_xy_buf",
+            "ref_root_xyz": "termination_ref_root_xyz_buf",
+            "ref_joint": "termination_ref_joint_pos_buf",
+            "support_rect": "termination_support_rect_buf",
+            "world_keypoint": "termination_world_keypoint_buf",
+        }
+        for label, attr in reason_attrs.items():
+            values = getattr(self, attr, None)
+            if values is not None:
+                diagnostics[f"termination_{label}_rate"] = torch.mean(values[env_ids].float())
+
+        if self.ref_body_pos_world_error.numel() > 0:
+            diagnostics["ref_body_world_error_mean"] = torch.mean(self.ref_body_pos_error_mean[env_ids])
+            diagnostics["ref_body_world_error_max"] = torch.mean(self.ref_body_pos_error_max[env_ids])
+            for label, _, _ in getattr(self.cfg.rewards, "termination_world_keypoint_thresholds", ()):
+                safe_label = str(label).replace("-", "_")
+                rate = getattr(self, f"termination_world_keypoint_{safe_label}_buf", None)
+                error = getattr(self, f"world_keypoint_{safe_label}_error_max", None)
+                if rate is not None:
+                    diagnostics[f"termination_world_keypoint_{safe_label}_rate"] = torch.mean(rate[env_ids].float())
+                if error is not None:
+                    diagnostics[f"world_keypoint_{safe_label}_error_max"] = torch.mean(error[env_ids])
+
+        return diagnostics
     def _apply_root_height_offset(self, env_ids):
         motion_cfg = self.cfg.motion_reference
         root_height_offset = getattr(motion_cfg, "reset_root_height_offset", 0.0)
@@ -319,7 +396,10 @@ class F1DHStandEnv(X1DHStandEnv):
     def _update_ref_root_pos_offsets(self, env_ids):
         samples = self.motion_loader.sample_by_time(self.motion_time_offsets[env_ids])
         root_pos = self.root_states[env_ids, :3] - self.env_origins[env_ids]
-        self.ref_root_pos_offset[env_ids] = root_pos - samples["root_pos"]
+        offset = root_pos - samples["root_pos"]
+        if not getattr(self.cfg.motion_reference, "align_ref_root_height_on_reset", True):
+            offset[:, 2] = 0.0
+        self.ref_root_pos_offset[env_ids] = offset
 
     def compute_ref_state(self):
         if self.motion_loader is not None:
@@ -604,10 +684,36 @@ class F1DHStandEnv(X1DHStandEnv):
             errors = self.ref_body_pos_world_error[:, indices]
         else:
             errors = self.ref_body_pos_world_error
-        error = torch.mean(errors, dim=1)
+        mean_error = torch.mean(errors, dim=1)
+        max_error = torch.max(errors, dim=1).values
         sigma = getattr(self.cfg.rewards, "motion_keypoint_pos_sigma", 20.0)
+        max_sigma = getattr(self.cfg.rewards, "motion_keypoint_max_pos_sigma", sigma)
+        return torch.exp(-sigma * mean_error) * torch.exp(-max_sigma * max_error)
+
+    def _reward_ref_keypoint_group_pos(self, tokens, sigma_attr):
+        if self.ref_body_pos_world_error.numel() == 0 or not self.ref_body_pos_names:
+            return torch.zeros(self.num_envs, device=self.device)
+        indices = self._body_pos_indices_containing(tokens)
+        if indices.numel() == 0:
+            return torch.zeros(self.num_envs, device=self.device)
+        error = torch.max(self.ref_body_pos_world_error[:, indices], dim=1).values
+        sigma = getattr(self.cfg.rewards, sigma_attr, getattr(self.cfg.rewards, "motion_keypoint_pos_sigma", 20.0))
         return torch.exp(-sigma * error)
 
+    def _reward_ref_keypoint_ankle_pos(self):
+        return self._reward_ref_keypoint_group_pos(("ankle",), "motion_keypoint_ankle_sigma")
+
+    def _reward_ref_keypoint_knee_pos(self):
+        return self._reward_ref_keypoint_group_pos(("knee",), "motion_keypoint_knee_sigma")
+
+    def _reward_ref_keypoint_hip_lumbar_pos(self):
+        return self._reward_ref_keypoint_group_pos(("hip", "lumbar"), "motion_keypoint_hip_lumbar_sigma")
+
+    def _reward_ref_keypoint_base_head_pos(self):
+        return self._reward_ref_keypoint_group_pos(("base", "head", "neck"), "motion_keypoint_base_head_sigma")
+
+    def _reward_ref_keypoint_upper_body_pos(self):
+        return self._reward_ref_keypoint_group_pos(("shoulder", "elbow"), "motion_keypoint_upper_body_sigma")
     def _reward_ref_lower_body_pos(self):
         return self._reward_ref_joint_subset_pos(("hip", "knee", "ankle"))
 
@@ -625,6 +731,42 @@ class F1DHStandEnv(X1DHStandEnv):
         yaw_roll = torch.clamp(yaw_roll - 0.1, 0, 50)
         return torch.exp(-yaw_roll * 100) - 0.01 * torch.norm(joint_diff, dim=1)
 
+    def _reward_tracking_motion_dof(self):
+        if self.motion_loader is None:
+            return torch.zeros(self.num_envs, device=self.device)
+        diff = self.dof_pos - self.ref_dof_pos
+        sigma = getattr(self.cfg.rewards, "tracking_motion_dof_sigma", 1.5)
+        return torch.exp(-torch.sum(torch.square(diff), dim=1) / max(sigma * sigma, 1e-6))
+
+    def _reward_tracking_motion_vel(self):
+        if self.motion_loader is None:
+            return torch.zeros(self.num_envs, device=self.device)
+        error = self.root_states[:, 7:9] - self.ref_root_lin_vel[:, :2]
+        sigma = getattr(self.cfg.rewards, "tracking_motion_vel_sigma", 1.0)
+        return torch.exp(-torch.sum(torch.square(error), dim=1) / max(sigma * sigma, 1e-6))
+
+    def _reward_alive(self):
+        return torch.ones(self.num_envs, device=self.device)
+
+    def _reward_action_smoothness(self):
+        actions = getattr(self, "policy_actions", self.actions)
+        last_actions = getattr(self, "last_policy_actions", self.last_actions)
+        last_last_actions = getattr(self, "last_last_policy_actions", self.last_last_actions)
+        term_1 = torch.sum(torch.square(last_actions - actions), dim=1)
+        term_2 = torch.sum(torch.square(actions + last_last_actions - 2 * last_actions), dim=1)
+        term_3 = 0.05 * torch.sum(torch.abs(actions), dim=1)
+        return term_1 + term_2 + term_3
+
+    def _reward_action_regularization(self):
+        actions = getattr(self, "policy_actions", self.actions)
+        return torch.sum(torch.square(actions), dim=1)
+
+    def _reward_lin_vel_z(self):
+        return torch.square(self.base_lin_vel[:, 2])
+
+    def _reward_yaw_penalty(self):
+        return torch.square(self.base_euler_xyz[:, 2])
+
     def _reward_motion_dof_vel(self):
         error = torch.norm(self.dof_vel - self.ref_dof_vel, dim=1)
         return torch.exp(-error * self.cfg.rewards.motion_dof_vel_sigma)
@@ -636,11 +778,23 @@ class F1DHStandEnv(X1DHStandEnv):
         error = torch.norm(self.dof_vel[:, indices] - self.ref_dof_vel[:, indices], dim=1)
         return torch.exp(-error * self.cfg.rewards.motion_dof_vel_sigma)
 
+    def _reward_base_height_floor_error(self):
+        root_height = self.root_states[:, 2] - self.env_origins[:, 2]
+        floor = getattr(self.cfg.rewards, "base_height_floor", 0.56)
+        return torch.square(torch.clamp(floor - root_height, min=0.0))
+
     def _reward_motion_root_height(self):
         root_height = self.root_states[:, 2] - self.env_origins[:, 2]
         target_height = self.aligned_ref_root_pos[:, 2]
         error = torch.abs(root_height - target_height)
         return torch.exp(-error * self.cfg.rewards.motion_root_height_sigma)
+
+    def _reward_motion_root_height_error(self):
+        root_height = self.root_states[:, 2] - self.env_origins[:, 2]
+        target_height = self.aligned_ref_root_pos[:, 2]
+        tolerance = getattr(self.cfg.rewards, "motion_root_height_error_tolerance", 0.03)
+        low_error = torch.clamp(target_height - root_height - tolerance, min=0.0)
+        return torch.square(low_error)
 
     def _reward_motion_root_orientation(self):
         quat_error = _quat_mul(self.base_quat, _quat_conjugate(self.ref_root_quat))

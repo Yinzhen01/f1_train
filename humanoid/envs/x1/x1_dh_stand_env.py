@@ -351,9 +351,15 @@ class X1DHStandEnv(LeggedRobot):
 
 
     def step(self, actions):
+        clip_actions = self.cfg.normalization.clip_actions
+        self.policy_actions = torch.clip(actions, -clip_actions, clip_actions).to(self.device)
+        pd_actions = self.policy_actions
         if self.cfg.env.use_ref_actions:
-            actions += self.ref_action
-        return super().step(actions)
+            pd_actions = self.policy_actions + self.ref_action
+        result = super().step(pd_actions)
+        self.last_last_policy_actions[:] = torch.clone(self.last_policy_actions[:])
+        self.last_policy_actions[:] = self.policy_actions[:]
+        return result
 
     def compute_observations(self):
 
@@ -371,8 +377,7 @@ class X1DHStandEnv(LeggedRobot):
         
         # critic no lag
         diff = self.dof_pos - self.ref_dof_pos
-        # 73
-        privileged_obs_buf = torch.cat((
+        privileged_obs_parts = [
             self.command_input,  # 2 + 3
             (self.dof_pos - self.default_joint_pd_target) * self.obs_scales.dof_pos,  # 12
             self.dof_vel * self.obs_scales.dof_vel,  # 12
@@ -385,9 +390,13 @@ class X1DHStandEnv(LeggedRobot):
             self.rand_push_torque,  # 3
             self.env_frictions,  # 1
             self.body_mass / 10.,  # 1 # sum of all fix link mass
-            stance_mask,  # 2
-            contact_mask,  # 2
-        ), dim=-1)
+        ]
+        if getattr(self.cfg.env, "include_privileged_gait_contact", True):
+            privileged_obs_parts.extend((
+                stance_mask,  # 2
+                contact_mask,  # 2
+            ))
+        privileged_obs_buf = torch.cat(privileged_obs_parts, dim=-1)
         
         # random add dof_pos and dof_vel same lag
         if self.cfg.domain_rand.add_dof_lag:
@@ -438,7 +447,10 @@ class X1DHStandEnv(LeggedRobot):
             self.lagged_base_euler_xyz = self.base_euler_xyz[:,-3:]
         
         # obs q and dq
-        q = (self.lagged_dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos
+        q_target = self.default_dof_pos
+        if getattr(self.cfg.env, "use_ref_dof_pos_observation", False):
+            q_target = self.ref_dof_pos
+        q = (self.lagged_dof_pos - q_target) * self.obs_scales.dof_pos
         dq = self.lagged_dof_vel * self.obs_scales.dof_vel  
 
         # 47
@@ -508,6 +520,9 @@ class X1DHStandEnv(LeggedRobot):
         self.last_last_actions[env_ids] = 0.
         self.actions[env_ids] = 0.
         self.last_actions[env_ids] = 0.
+        self.policy_actions[env_ids] = 0.
+        self.last_last_policy_actions[env_ids] = 0.
+        self.last_policy_actions[env_ids] = 0.
         self.last_rigid_state[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
         self.last_root_vel[env_ids] = 0.
@@ -560,6 +575,9 @@ class X1DHStandEnv(LeggedRobot):
         """ Initialize torch tensors which will contain simulation states and processed quantities
         """
         super()._init_buffers()
+        self.policy_actions = torch.zeros_like(self.actions)
+        self.last_policy_actions = torch.zeros_like(self.actions)
+        self.last_last_policy_actions = torch.zeros_like(self.actions)
         self.gait_time = torch.zeros(self.num_envs, len(self.cfg.commands.gait) ,dtype=torch.int, device=self.device, requires_grad=False)
         self.phase_length_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long)
