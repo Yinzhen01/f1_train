@@ -48,6 +48,12 @@ doc/gradmotion_reverse_ssh_gui_workflow.md
 Gradmotion reverse SSH workflow for letting Codex operate a GUI cloud desktop through a public jump host while keeping windows visible on the user's active desktop session, including DISPLAY/XAUTHORITY handling and cleanup rules.
 
 ```text
+doc/codex_gradmotion_gui_operation_principles.md
+```
+
+Principles and operating model for Codex-controlled Gradmotion GUI desktops, including reverse SSH architecture, DISPLAY/XAUTHORITY GUI visibility, background process handling, multi-desktop port mapping, and safety boundaries.
+
+```text
 doc/gradmotion_codex_gui_minimal_repro.md
 ```
 
@@ -77,15 +83,21 @@ doc/resource_layout.md
 
 URDF model and retargeted motion directory layout, variant naming (perfect/physically mirrored), currently active F1 model, and related code entry points.
 
+```text
+doc/f1_static_stand_warmup_workflow.md
+```
+
+F1 static standing warm-up workflow based on the first frame of `motion_walk_0.6ms.csv`, including static NPZ generation, required small-batch GUI validation, and the follow-on headless training baseline.
+
 ## Key Resource Pointers
 
 Currently active model for F1 training:
 
 ```text
-resources/robots/f1_v1.5/urdf/F1_29DOF_physically_mirrored.urdf
+resources/robots/f1_v1.5/urdf/F1_29DOF_perfect_mirrored.urdf
 ```
 
-This matches `humanoid/envs/f1/f1_dh_stand_config.py` and the default F1 motion metadata. Treat `F1_29DOF_perfect_mirrored.urdf` as an alternate URDF variant unless the training config is explicitly changed.
+This matches `humanoid/envs/f1/f1_dh_stand_config.py` and the `motion_walk_0.6ms.csv` MuJoCo validation baseline. Treat `F1_29DOF_physically_mirrored.urdf` as an alternate URDF variant unless the training config is explicitly changed.
 
 For the full URDF and retargeted motion directory layout, variant naming, and related code entry points, use:
 
@@ -139,6 +151,16 @@ python humanoid/scripts/rephase_motion_npz.py --input INPUT.npz --output OUTPUT.
 ```
 
 Then pass the generated NPZ through `MOTION_REFERENCE_FILE=...` and consider enabling `MOTION_CONTACT_SCHEDULE_SCALE` plus stronger early root/keypoint reward scale overrides in `humanoid/scripts/train_focused_view.py`.
+
+For `resources/motions/f1/v1.5/raw/motion_walk_0.6ms.csv`, first train the static standing warm-up task from frame 0 before full walking imitation:
+
+```bash
+TASK=f1_dh_static_stand NUM_ENVS=10 MAX_ITERATIONS=100000 \
+  RUN_NAME=f1_static_stand_gui_10env_YYYYMMDD \
+  bash ops/gradmotion/gui-desktop-train.sh gui-hold-focused
+```
+
+Run this small-batch GUI check before any large headless run. Use `doc/f1_static_stand_warmup_workflow.md` for the full workflow.
 
 ## AGENTS.md Registration Policy
 

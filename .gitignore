@@ -71,3 +71,6 @@ __pycache__
 *.swp
 
 MUJOCO_LOG.TXT
+.codex-python/
+.codex-output/
+outputs/

@@ -8,7 +8,7 @@ This document describes the layout of robot models and retargeted reference moti
 resources/robots/
 ├── f1_v1.5/urdf/
 │   ├── F1_29DOF_perfect_mirrored.urdf
-│   ├── F1_29DOF_physically_mirrored.urdf    <- currently active for F1 training
+│   ├── F1_29DOF_physically_mirrored.urdf
 │   ├── X1_12DOF_perfect_mirrored.urdf
 │   ├── X1_12DOF_physically_mirrored.urdf
 │   ├── X1_29DOF_perfect_mirrored.urdf
@@ -29,10 +29,10 @@ Variant naming:
 The currently active model for F1 training is:
 
 ```text
-resources/robots/f1_v1.5/urdf/F1_29DOF_physically_mirrored.urdf
+resources/robots/f1_v1.5/urdf/F1_29DOF_perfect_mirrored.urdf
 ```
 
-This is the asset path configured by `humanoid/envs/f1/f1_dh_stand_config.py`, and it matches `resources/motions/f1/v1.5/metadata.json`. `F1_29DOF_perfect_mirrored.urdf` remains an alternate model variant and is referenced by `metadata_hiproll_scaled.json`.
+This is the asset path configured by `humanoid/envs/f1/f1_dh_stand_config.py`, and it matches the MuJoCo model used to validate `resources/motions/f1/v1.5/raw/motion_walk_0.6ms.csv`. `F1_29DOF_physically_mirrored.urdf` remains an alternate model variant unless a training config explicitly opts into it.
 
 ## Retargeted Reference Motions
 
