@@ -1,0 +1,113 @@
+{
+  "source_npz": "resources/motions/f1/v1.5/processed/07_03_walk_yup_recwalk_base_lowerbody_smooth_p8_120_180_groundfit_minima_safe_bodypos.npz",
+  "source_frame": 414,
+  "processed_npz": "resources/motions/f1/v1.5/processed/07_03_walk_yup_recwalk_base_lowerbody_smooth_p8_120_180_groundfit_minima_safe_lastframe_static_bodypos.npz",
+  "frame_count": 2,
+  "duration": 0.019999999552965164,
+  "dt": 0.019999999552965164,
+  "fps": 50.00000111758712,
+  "root_height_offset": -0.004,
+  "root_pos": [
+    -0.7756125330924988,
+    1.6631741523742676,
+    0.6216400265693665
+  ],
+  "root_quat_xyzw": [
+    0.03223130479454994,
+    -0.00938919372856617,
+    0.7514485716819763,
+    0.6589370369911194
+  ],
+  "original_last_root_pos": [
+    -0.7756125330924988,
+    1.6631741523742676,
+    0.6256400346755981
+  ],
+  "original_last_root_lin_vel": [
+    0.0115165114402771,
+    0.25477051734924316,
+    -0.02518683671951294
+  ],
+  "original_last_root_ang_vel": [
+    -0.13146352767944336,
+    0.0044918847270309925,
+    0.06336496025323868
+  ],
+  "original_last_dof_vel_abs_mean": 0.32766860723495483,
+  "original_last_dof_vel_abs_max": 1.4136582612991333,
+  "body_pos_min_z_after_offset": -0.004000000189989805,
+  "ankle_body_z_after_offset": [
+    [
+      "left_ankle_pitch_link",
+      0.07851994037628174
+    ],
+    [
+      "left_ankle_roll_link",
+      0.07851994037628174
+    ],
+    [
+      "right_ankle_pitch_link",
+      0.069288469851017
+    ],
+    [
+      "right_ankle_roll_link",
+      0.069288469851017
+    ]
+  ],
+  "toe_body_z_after_offset": [
+    [
+      "leg_l_toe_a_link",
+      0.263590931892395
+    ],
+    [
+      "leg_l_toe_a_ball_link",
+      0.2841610014438629
+    ],
+    [
+      "leg_l_toe_a_loop_link",
+      0.10576022416353226
+    ],
+    [
+      "leg_l_toe_b_link",
+      0.21329790353775024
+    ],
+    [
+      "leg_l_toe_b_ball_link",
+      0.22351950407028198
+    ],
+    [
+      "leg_l_toe_b_loop_link",
+      0.09543688595294952
+    ],
+    [
+      "leg_r_toe_a_link",
+      0.24580425024032593
+    ],
+    [
+      "leg_r_toe_a_ball_link",
+      0.248400017619133
+    ],
+    [
+      "leg_r_toe_a_loop_link",
+      0.06515706330537796
+    ],
+    [
+      "leg_r_toe_b_link",
+      0.19412647187709808
+    ],
+    [
+      "leg_r_toe_b_ball_link",
+      0.1942017376422882
+    ],
+    [
+      "leg_r_toe_b_loop_link",
+      0.06264268606901169
+    ]
+  ],
+  "notes": [
+    "Static reference generated from the final frame of the original minima_safe_bodypos NPZ, not the rephased NPZ.",
+    "All root and DOF velocities are zeroed.",
+    "Root/body z are lowered by 0.004m so the lowest physical collision geom is approximately ground-contacting.",
+    "Training reset_root_height_offset should remain 0.0."
+  ]
+}

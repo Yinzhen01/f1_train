@@ -1,0 +1,24 @@
+{
+  "source_npz": "resources/motions/f1/v1.5/processed/motion_walk_0.6ms_static_stand_frame215.npz",
+  "processed_npz": "resources/motions/f1/v1.5/processed/motion_walk_0.6ms_static_stand_frame215_anklepitchfix.npz",
+  "source_csv": "resources/motions/f1/v1.5/raw/motion_walk_0.6ms.csv",
+  "source_frame": 215,
+  "left_ankle_pitch_delta": -0.3,
+  "right_ankle_pitch_delta": 0.1,
+  "left_ankle_pitch": -0.37532901763916016,
+  "right_ankle_pitch": 0.009068623185157776,
+  "root_pos": [
+    0.3876279890537262,
+    1.8732730150222778,
+    0.6347175240516663
+  ],
+  "root_height_offset_from_input": -0.007235441668987189,
+  "root_height_offset_total": -0.0072354418225586414,
+  "notes": [
+    "Training-only static reference variant.",
+    "Original retargeted CSV is not modified.",
+    "Left/right ankle pitch are adjusted to widen the effective support margin.",
+    "Root/body velocities and DOF velocities are zeroed.",
+    "Root height is recomputed so the lowest physical foot collision geom is at ground contact."
+  ]
+}

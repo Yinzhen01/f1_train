@@ -1,0 +1,25 @@
+{
+  "source": "mjcf_home_default_all_zero",
+  "description": "Static all-zero F1 home standing reference using the model default root height.",
+  "root_pos": [
+    0.0,
+    0.0,
+    0.7
+  ],
+  "root_quat_xyzw": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "old_contact_adjusted_root_z": 0.6275364756584167,
+  "root_z_delta_from_contact_adjusted": 0.07246352434158321,
+  "joint_pose": "all 29 dof positions are zero radians",
+  "velocities": "root and dof velocities are zero",
+  "plain_file": "resources/motions/f1/v1.5/processed/f1_zero_static_stand_home.npz",
+  "bodypos_file": "resources/motions/f1/v1.5/processed/f1_zero_static_stand_home_bodypos.npz",
+  "notes": [
+    "Use this for first-stage clean standing warm-up in Isaac Gym.",
+    "The earlier f1_zero_static_stand_bodypos.npz lowers root_z for MuJoCo physical foot contact; this home variant keeps init_state.pos z=0.7."
+  ]
+}

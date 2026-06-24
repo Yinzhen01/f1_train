@@ -1,0 +1,27 @@
+{
+  "source_npz": "resources/motions/f1/v1.5/processed/motion_walk_0.6ms_static_stand_frame215_anklepitchfix.npz",
+  "processed_npz": "resources/motions/f1/v1.5/processed/motion_walk_0.6ms_static_stand_frame215_anklepitch_hiprollfix.npz",
+  "source_csv": "resources/motions/f1/v1.5/raw/motion_walk_0.6ms.csv",
+  "source_frame": 215,
+  "joint_deltas": {
+    "left_hip_roll_joint": -0.1,
+    "right_hip_roll_joint": 0.2
+  },
+  "left_hip_roll": -0.13238000869750977,
+  "right_hip_roll": 0.23258599638938904,
+  "root_pos": [
+    0.3876279890537262,
+    1.8732730150222778,
+    0.6310409903526306
+  ],
+  "root_height_offset_from_input": -0.003676545757199003,
+  "root_height_offset_total": -0.010911987163126469,
+  "notes": [
+    "Training-only static reference variant.",
+    "Original retargeted CSV is not modified.",
+    "Built on the ankle-pitch-fixed frame215 reference.",
+    "Hip roll is adjusted to improve lateral support margin.",
+    "Root/body velocities and DOF velocities are zeroed.",
+    "Root height is recomputed so the lowest physical foot collision geom is at ground contact."
+  ]
+}

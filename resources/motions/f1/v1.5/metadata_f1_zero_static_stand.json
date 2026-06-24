@@ -1,0 +1,72 @@
+{
+  "source_pose": "mjcf_home_default_all_zero",
+  "processed_npz": "resources/motions/f1/v1.5/processed/f1_zero_static_stand.npz",
+  "robot_urdf": "resources/robots/f1_v1.5/urdf/F1_29DOF_perfect_mirrored.urdf",
+  "frame_count": 2,
+  "joint_count": 29,
+  "duration": 0.02,
+  "root_pos": [
+    0.0,
+    0.0,
+    0.6275364756584167
+  ],
+  "root_quat_xyzw": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+  ],
+  "root_height_offset_from_mjcf_home": -0.07246352630705888,
+  "min_foot_collision_z_at_home": 0.07246352630705885,
+  "support_x": [
+    -0.06765036319289515,
+    0.07234982606579382
+  ],
+  "support_y": [
+    -0.16382662763466946,
+    0.16382662763466943
+  ],
+  "com_xy": [
+    0.006019405082462381,
+    0.00017456600550327922
+  ],
+  "support_margin_x": 0.06633042098333145,
+  "support_margin_y": 0.16365206162916615,
+  "joint_names": [
+    "lumbar_yaw_joint",
+    "lumbar_roll_joint",
+    "lumbar_pitch_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_pitch_joint",
+    "left_elbow_yaw_joint",
+    "left_wrist_pitch_joint",
+    "left_wrist_roll_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_pitch_joint",
+    "right_elbow_yaw_joint",
+    "right_wrist_pitch_joint",
+    "right_wrist_roll_joint",
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_pitch_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_pitch_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint"
+  ],
+  "notes": [
+    "Training-only static reference generated from MJCF home_default.",
+    "All actuated joints are zero.",
+    "Root height is lowered from z=0.7 so the lowest physical foot collision geom touches the ground.",
+    "Root/body velocities and DOF velocities are zero."
+  ]
+}
